@@ -1,11 +1,165 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import { Send, Activity, Stethoscope, AlertTriangle } from 'lucide-react';
+import { Send, Activity, Stethoscope, AlertTriangle, Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import './index.css';
+
+// Tách nội dung <think>...</think> ra khỏi phần trả lời chính
+function parseThinkingContent(rawText) {
+  if (!rawText) return { thinking: '', answer: '', isThinking: false };
+
+  const thinkOpenTag = '<think>';
+  const thinkCloseTag = '</think>';
+  const openIdx = rawText.indexOf(thinkOpenTag);
+
+  if (openIdx === -1) {
+    return { thinking: '', answer: rawText, isThinking: false };
+  }
+
+  const closeIdx = rawText.indexOf(thinkCloseTag, openIdx);
+
+  if (closeIdx === -1) {
+    // Chưa đóng </think> → đang trong quá trình suy luận
+    const thinkContent = rawText.slice(openIdx + thinkOpenTag.length);
+    const beforeThink = rawText.slice(0, openIdx);
+    return { thinking: thinkContent, answer: beforeThink, isThinking: true };
+  }
+
+  // Đã đóng </think>
+  const thinkContent = rawText.slice(openIdx + thinkOpenTag.length, closeIdx);
+  const afterThink = rawText.slice(closeIdx + thinkCloseTag.length);
+  const beforeThink = rawText.slice(0, openIdx);
+  return { thinking: thinkContent, answer: beforeThink + afterThink, isThinking: false };
+}
+
+// Component hiển thị phần suy luận của AI (collapsible)
+function ThinkingBlock({ content, isThinking }) {
+  const [isOpen, setIsOpen] = useState(isThinking);
+
+  useEffect(() => {
+    if (isThinking) setIsOpen(true);
+  }, [isThinking]);
+
+  if (!content) return null;
+
+  return (
+    <div className={`thinking-block ${isThinking ? 'active' : 'done'}`}>
+      <button className="thinking-toggle" onClick={() => setIsOpen(!isOpen)}>
+        <Brain size={14} />
+        <span>{isThinking ? 'AI đang suy luận...' : 'Xem quá trình suy luận'}</span>
+        {isThinking && <span className="thinking-pulse" />}
+        {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      </button>
+      {isOpen && (
+        <div className="thinking-content">
+          <pre>{content}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Component hiển thị 1 tin nhắn bot với markdown
+function BotMessage({ msg }) {
+  const { thinking, answer, isThinking } = parseThinkingContent(msg.content);
+
+  const formatMarkdown = (text) => {
+    if (!text) return '';
+
+    let f = text.replace(/\r\n/g, '\n');
+
+    // ===== Fix inline markdown structures =====
+    // LLM thường output markdown structures mà không có newline phía trước.
+    // Chèn \n\n trước các cấu trúc block-level khi chúng xuất hiện inline.
+
+    // 1. Horizontal rules: --- khi đứng inline (trước nó không phải newline)
+    f = f.replace(/([^\n])\s*(\n?---)\s*/g, '$1\n\n---\n\n');
+
+    // 2. Headings: # ## ### #### khi đứng inline
+    f = f.replace(/([^\n])\s*(#{1,4}\s+)/g, '$1\n\n$2');
+
+    // 2b. Tách các heading đặc thù hay bị dính inline
+    const commonHeadings = [
+      "Giải thích chi tiết",
+      "Khuyến nghị an toàn",
+      "Khuyến cáo",
+      "Kết luận",
+      "Tóm tắt",
+      "Lưu ý quan trọng",
+      "Lưu ý an toàn",
+      "Cảnh báo",
+      "Phân tích"
+    ];
+    for (const h of commonHeadings) {
+      // Tìm "# Heading" theo sau là khoảng trắng và 1 từ (để chắc chắn nó bị dính)
+      const regex = new RegExp(`(#{1,4}\\s+${h})\\s+(?=\\S)`, 'gi');
+      f = f.replace(regex, '$1\n\n');
+    }
+    
+    // Tách heading nếu nó kết thúc bằng dấu hai chấm
+    f = f.replace(/(#{1,4}\s+[^:\n]+:)\s+(?=\S)/g, '$1\n\n');
+
+    // 3. Numbered list: "1. " "2. " khi đứng inline (trước nó là ký tự thường, không phải \n)
+    f = f.replace(/([^\n\d])\s+(\d+\.\s+)/g, '$1\n\n$2');
+
+    // 3b. Tách heading numbered item khỏi sub-items: "1. Title: - **Sub**"
+    f = f.replace(/(\d+\.\s+[^:\n]+:)\s+(- )/g, '$1\n$2');
+
+    // 4. Dash list items trước bold: "- **Text**:" — pattern phổ biến nhất của model
+    f = f.replace(/([^\n])\s+(- \*\*)/g, '$1\n$2');
+
+    // 5. Dash list items trước text thường: ". - Text" hoặc ": - Text"
+    f = f.replace(/([.!?:;)）。])\s+(- [^\s*-])/g, '$1\n$2');
+
+    // ===== Đảm bảo single \n → \n\n để ReactMarkdown hiểu là paragraph break =====
+    f = f.replace(/(?<!\n)\n(?!\n)/g, '\n\n');
+
+    // Thu gọn 3+ newlines → 2
+    f = f.replace(/\n{3,}/g, '\n\n');
+
+    // Trim leading whitespace/newlines
+    f = f.replace(/^\s+/, '');
+
+    // Citation badges
+    f = f.replace(/\[(\d+)\]/g, '<span class="citation-badge">[$1]</span>');
+
+    return f;
+  };
+
+  return (
+    <>
+      <ThinkingBlock content={thinking} isThinking={isThinking} />
+      {answer.trim() && (
+        <div className="msg-content">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[
+              rehypeRaw,
+              [rehypeSanitize, {
+                ...defaultSchema,
+                attributes: {
+                  ...defaultSchema.attributes,
+                  span: [...(defaultSchema.attributes.span || []), 'className', 'class']
+                }
+              }]
+            ]}
+          >
+            {formatMarkdown(answer)}
+          </ReactMarkdown>
+        </div>
+      )}
+      {/* Khi đang stream mà chưa có answer (vẫn đang think), hiện placeholder */}
+      {msg._isStreaming && !answer.trim() && !isThinking && (
+        <div className="msg-content">
+          <span className="stream-cursor" />
+        </div>
+      )}
+    </>
+  );
+}
 
 function App() {
   const [messages, setMessages] = useState([
@@ -17,18 +171,20 @@ function App() {
     }
   ]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);   // Đang chờ server phản hồi
+  const [isStreaming, setIsStreaming] = useState(false); // Đang nhận token
   const [stats, setStats] = useState(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading]);
+  }, [messages, isLoading, isStreaming, scrollToBottom]);
 
   useEffect(() => {
     // Fetch stats on load
@@ -47,22 +203,28 @@ function App() {
   };
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || isStreaming) return;
 
     const userMsg = input.trim();
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = '24px';
 
-    setMessages(prev => [...prev, { id: Date.now(), role: 'user', content: userMsg }]);
+    const userMsgId = Date.now();
+    const botMsgId = userMsgId + 1;
+
+    setMessages(prev => [...prev, { id: userMsgId, role: 'user', content: userMsg }]);
     setIsLoading(true);
+
+    // Hỗ trợ abort request
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       const response = await fetch('http://localhost:8000/api/chat/stream', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ message: userMsg, is_emergency: isEmergency })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg, is_emergency: isEmergency }),
+        signal: controller.signal
       });
 
       if (!response.ok) {
@@ -71,86 +233,132 @@ function App() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
-      
+
       let isFirstMetadata = true;
       let currentContent = "";
+      let buffer = "";
+      let messageMetadata = null;
+
+      // RAF batching: gom nhiều token cùng 1 frame để giảm re-render
+      let pendingContent = null;
+      let rafId = null;
+
+      const flushContent = () => {
+        if (pendingContent !== null) {
+          const contentToSet = pendingContent;
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastMsg = newMessages[newMessages.length - 1];
+            if (lastMsg && lastMsg.id === botMsgId) {
+              newMessages[newMessages.length - 1] = {
+                ...lastMsg,
+                content: contentToSet
+              };
+            }
+            return newMessages;
+          });
+          pendingContent = null;
+        }
+        rafId = null;
+      };
+
+      const scheduleUpdate = (content) => {
+        pendingContent = content;
+        if (!rafId) {
+          rafId = requestAnimationFrame(flushContent);
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.type === 'metadata') {
-                if (data.data.type === 'emergency' || data.data.type === 'out_of_scope' || data.data.type === 'insufficient_evidence') {
-                  setMessages(prev => [...prev, {
-                    id: Date.now() + 1,
-                    role: 'bot',
-                    content: data.data.message,
-                    metadata: { type: data.data.type }
-                  }]);
-                  return; // Stop processing
-                }
-                
-                if (isFirstMetadata) {
-                  setMessages(prev => [...prev, {
-                    id: Date.now() + 1,
-                    role: 'bot',
-                    content: '',
-                    metadata: {
-                      type: data.data.type,
-                      category: data.data.category,
-                      risk: data.data.risk_level,
-                      route: data.data.route,
-                      sources: data.data.sources,
-                      disclaimer: data.data.disclaimer
-                    }
-                  }]);
-                  isFirstMetadata = false;
-                }
-              } else if (data.type === 'token') {
-                currentContent += data.content;
-                setMessages(prev => {
-                  const newMessages = [...prev];
-                  const lastMsg = newMessages[newMessages.length - 1];
-                  lastMsg.content = currentContent;
-                  return newMessages;
-                });
-              } else if (data.type === 'error') {
-                throw new Error(data.content);
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || "";
+
+        for (const part of parts) {
+          const trimmed = part.trim();
+          if (!trimmed.startsWith('data: ')) continue;
+
+          try {
+            const data = JSON.parse(trimmed.slice(6));
+
+            if (data.type === 'metadata') {
+              if (data.data.type === 'emergency' || data.data.type === 'out_of_scope' || data.data.type === 'insufficient_evidence') {
+                // Flush pending trước
+                if (rafId) { cancelAnimationFrame(rafId); flushContent(); }
+                setMessages(prev => [...prev, {
+                  id: botMsgId,
+                  role: 'bot',
+                  content: data.data.message,
+                  metadata: { type: data.data.type }
+                }]);
+                setIsLoading(false);
+                return;
               }
-            } catch (e) {
-              console.error("Lỗi parse SSE:", e, line);
+
+              if (isFirstMetadata) {
+                messageMetadata = {
+                  type: data.data.type,
+                  category: data.data.category,
+                  risk: data.data.risk_level,
+                  route: data.data.route,
+                  sources: data.data.sources,
+                  disclaimer: data.data.disclaimer
+                };
+                setMessages(prev => [...prev, {
+                  id: botMsgId,
+                  role: 'bot',
+                  content: '',
+                  metadata: messageMetadata,
+                  _isStreaming: true
+                }]);
+                setIsLoading(false);
+                setIsStreaming(true);
+                isFirstMetadata = false;
+              }
+            } else if (data.type === 'token') {
+              currentContent += data.content;
+              scheduleUpdate(currentContent);
+            } else if (data.type === 'error') {
+              throw new Error(data.content);
             }
+          } catch (e) {
+            if (e.message && !e.message.includes('JSON')) throw e;
+            console.warn("SSE parse warning:", e.message, trimmed.slice(0, 100));
           }
         }
       }
-      
+
+      // Flush bất kì token còn lại
+      if (rafId) { cancelAnimationFrame(rafId); }
+      flushContent();
+
       // Chèn disclaimer vào cuối nếu có
       setMessages(prev => {
         const newMessages = [...prev];
         const lastMsgIndex = newMessages.length - 1;
         const lastMsg = newMessages[lastMsgIndex];
-        
-        if (lastMsg.metadata && lastMsg.metadata.disclaimer) {
-          // Tránh lỗi nối chuỗi 2 lần do React StrictMode bằng cách kiểm tra trước khi nối
-          if (!lastMsg.content.includes(lastMsg.metadata.disclaimer)) {
-            newMessages[lastMsgIndex] = {
-              ...lastMsg,
-              content: lastMsg.content + "\n\n---\n" + lastMsg.metadata.disclaimer
-            };
+
+        if (lastMsg && lastMsg.id === botMsgId) {
+          let finalContent = lastMsg.content;
+          if (lastMsg.metadata && lastMsg.metadata.disclaimer) {
+            if (!finalContent.includes(lastMsg.metadata.disclaimer)) {
+              finalContent = finalContent + "\n\n---\n" + lastMsg.metadata.disclaimer;
+            }
           }
+          newMessages[lastMsgIndex] = {
+            ...lastMsg,
+            content: finalContent,
+            _isStreaming: false
+          };
         }
         return newMessages;
       });
 
     } catch (error) {
+      if (error.name === 'AbortError') return;
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
         role: 'bot',
@@ -159,6 +367,8 @@ function App() {
       }]);
     } finally {
       setIsLoading(false);
+      setIsStreaming(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -171,25 +381,12 @@ function App() {
     }
   };
 
-  const formatMarkdown = (text) => {
-    if (!text) return '';
-    // Normalize newlines to ensure ReactMarkdown renders them as breaks
-    let formatted = text
-      .replace(/\r?\n/g, '\n')
-      .replace(/\n/g, '\n\n')
-      .replace(/\n{3,}/g, '\n\n');
-      
-    // Format citation references [1], [2] to beautiful badges
-    formatted = formatted.replace(/\[(\d+)\]/g, '<span class="citation-badge">[$1]</span>');
-    return formatted;
-  };
-
   return (
     <div className="app-container">
       <header className="header">
         <h1><Activity size={28} /> Health AI Assistant</h1>
         <div className="stats">
-          <button 
+          <button
             className={`sos-btn ${isEmergency ? 'active' : ''}`}
             onClick={() => setIsEmergency(!isEmergency)}
             title="Bật/Tắt chế độ cấp cứu"
@@ -207,38 +404,14 @@ function App() {
       <main className="chat-window">
         {messages.map((msg) => (
           <div key={msg.id} className={`message ${msg.role}`}>
-            <div className="msg-content">
-              {msg.role === 'bot' ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[
-                    rehypeRaw,
-                    [rehypeSanitize, {
-                      ...defaultSchema,
-                      attributes: {
-                        ...defaultSchema.attributes,
-                        span: [...(defaultSchema.attributes.span || []), 'className', 'class']
-                      }
-                    }]
-                  ]}
-                >
-                  {(() => {
-                    let content = formatMarkdown(msg.content);
-                    const openCount = (content.match(/<think>/g) || []).length;
-                    const closeCount = (content.match(/<\/think>/g) || []).length;
-                    if (openCount > closeCount) {
-                      content += '\n</think>';
-                    }
-                    return content
-                      .replace(/<think>/g, '> **[AI đang suy luận...]**\n\n```text\n')
-                      .replace(/<\/think>/g, '\n```\n\n**[Câu trả lời]**\n\n');
-                  })()}
-                </ReactMarkdown>
-              ) : (
-                msg.content
-              )}
-            </div>
-            
+            {msg.role === 'bot' ? (
+              <BotMessage msg={msg} />
+            ) : (
+              <div className="msg-content">
+                {msg.content}
+              </div>
+            )}
+
             {msg.role === 'bot' && msg.metadata && msg.metadata.type !== 'error' && msg.metadata.route && (
               <div className="metadata">
                 {msg.metadata.risk === 'critical' || msg.metadata.risk === 'high' ? (
@@ -252,7 +425,7 @@ function App() {
                 <span>Luồng: {msg.metadata.route === 'general_qa' ? '🤖 Local LLM' : '🔍 RAG Pipeline'}</span>
               </div>
             )}
-            
+
             {msg.role === 'bot' && msg.metadata && msg.metadata.sources && msg.metadata.sources.length > 0 && (
               <div className="sources-container">
                 <details className="sources-details">
@@ -274,7 +447,7 @@ function App() {
             )}
           </div>
         ))}
-        
+
         {isLoading && (
           <div className="typing-indicator">
             <div className="dot"></div>
@@ -295,9 +468,9 @@ function App() {
             onKeyDown={handleKeyDown}
             placeholder="Hỏi về triệu chứng, thuốc, hoặc lời khuyên y tế..."
             rows={1}
-            disabled={isLoading}
+            disabled={isLoading || isStreaming}
           />
-          <button onClick={handleSend} disabled={!input.trim() || isLoading}>
+          <button onClick={handleSend} disabled={!input.trim() || isLoading || isStreaming}>
             <Send size={20} />
           </button>
         </div>
