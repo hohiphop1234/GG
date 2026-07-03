@@ -4,9 +4,9 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19.0%2B-61DAFB.svg)](https://react.dev/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Workflow-orange.svg)](https://langchain-ai.github.io/langgraph/)
-[![Ollama](https://img.shields.io/badge/Ollama-Local__LLM-black.svg)](https://ollama.ai/)
+[![ONNX Runtime](https://img.shields.io/badge/ONNX--Runtime-Inference-green.svg)](https://onnxruntime.ai/)
 
-Hệ thống Trợ lý Y tế Thông minh hỗ trợ tư vấn sức khỏe bằng tiếng Việt, được xây dựng trên kiến trúc **Full-stack hiện đại (React + FastAPI)** kết hợp mô hình điều phối luồng **LangGraph Workflow** và tìm kiếm tăng cường độ chính xác cao (**Hybrid RAG**).
+Hệ thống Trợ lý Y tế Thông minh hỗ trợ tư vấn sức khỏe bằng tiếng Việt, được xây dựng trên kiến trúc **Full-stack React + FastAPI**, tích hợp mô hình định tuyến **PhoBERT ONNX**, viết lại câu hỏi bằng **ViT5-base**, và trả lời dựa trên kỹ thuật **Hybrid RAG** kết hợp suy luận từ **Local LLM (GGUF)**.
 
 > [!IMPORTANT]
 > **Tuyên bố Miễn trừ Trách nhiệm Y tế (Medical Disclaimer):**
@@ -16,34 +16,34 @@ Hệ thống Trợ lý Y tế Thông minh hỗ trợ tư vấn sức khỏe bằ
 
 ## 🌟 Điểm nhấn & Định hướng Công nghệ (Current Direction)
 
-Dự án được phát triển theo hướng đi chuẩn xác và hiện đại nhất cho các hệ thống tư vấn y khoa tự trị (Agentic Medical AI):
+Dự án được xây dựng và tối ưu hóa theo xu hướng hiện đại nhất của các hệ thống AI tác tử (Agentic AI) cục bộ:
 
-1. **Kiến trúc Full-stack Độc lập & Hiện đại:**
-   - **Backend API:** Sử dụng **FastAPI** hiệu năng cao, hỗ trợ truy vấn RESTful API (`/api/chat`), truyền phát dữ liệu thời gian thực qua Server-Sent Events (SSE Streaming `/api/chat/stream`) và cung cấp thống kê hệ thống.
-   - **Frontend UI:** Giao diện người dùng web động, tối ưu trải nghiệm (UX/UI) được xây dựng bằng **React + Vite**, dễ dàng tùy biến và triển khai trên mọi thiết bị.
+1. **Định tuyến Siêu tốc với PhoBERT ONNX Classifier:**
+   - Thay thế việc phân loại bằng LLM chậm chạp (Zero-shot) hoặc quy tắc cứng nhắc (Regex) bằng một mô hình **PhoBERT-base-v2** được fine-tune chuyên biệt và đóng gói dưới dạng **ONNX Runtime**.
+   - Định tuyến câu hỏi chuẩn xác thành 4 nhóm chính: `medical` (y tế), `emergency` (cấp cứu), `out-of-scope` (ngoài luồng), và `faq` (hỏi đáp chatbot) chỉ với độ trễ cực thấp từ **10-30ms**.
 
-2. **Đuờng ống Điều phối Thông minh với LangGraph (`LangGraphPipeline`):**
-   - Không sử dụng luồng hỏi đáp tuyến tính cứng nhắc. Câu hỏi được luân chuyển qua đồ thị trạng thái (`StateGraph`) với các nút (Node) chuyên biệt.
-   - **Node Kiểm duyệt An toàn (Safety Guard):** Nhận diện các từ khóa/tình huống khẩn cấp (nhồi máu cơ tim, đột quỵ, tự tử, ngộ độc...) ngay tại cửa ngõ để phát ra phản hồi khẩn cấp lập tức mà không tốn thời gian suy luận LLM.
-   - **Node Phân loại & Định tuyến (Query Router):** Phân loại danh mục y khoa (`drug_safety`, `interactions`, `pregnancy`, `overdose`...) và đánh giá mức độ rủi ro (`low`, `medium`, `high`, `critical`) để định tuyến xử lý tối ưu sang 2 luồng riêng biệt:
-     - *Nhánh RAG (`rag_node`):* Kích hoạt cho các câu hỏi y khoa chuyên sâu hoặc có rủi ro cao/nghiêm trọng (tác dụng phụ, liều dùng, thai kỳ...). Hệ thống tìm kiếm bằng chứng từ ChromaDB & BM25 trước khi LLM tổng hợp câu trả lời kèm trích dẫn.
-     - *Nhánh General QA (`general_qa_node`):* Kích hoạt cho các câu chào hỏi giao tiếp cơ bản hoặc câu hỏi sức khỏe chung chung có rủi ro thấp/trung bình. Câu hỏi được bỏ qua bước tìm kiếm RAG để gửi thẳng tới mô hình LLM cục bộ (`QwenMedicalLLM`) trả lời siêu tốc.
+2. **Viết lại câu hỏi thông minh với ViT5 Seq2Seq:**
+   - Tích hợp mô hình **ViT5-base** chuyên viết lại câu hỏi tiếng Việt (`Query Rewrite`).
+   - Tự động chuyển đổi các câu hỏi không dấu, viết sai chính tả, hoặc hành văn tự nhiên của người dùng (ví dụ: *"bo toi bi dau nguc du doi cuu voi"*) thành các truy vấn y khoa chuẩn hóa để cải thiện độ chính xác khi tìm kiếm RAG.
+   - Có thể xuất sang **ONNX** (`optimum-cli`) để chạy mượt mà trên CPU.
 
-3. **Tìm kiếm Lai Tối ưu (Hybrid Retrieval + RRF):**
-   - Kết hợp tìm kiếm ngữ nghĩa sâu (Semantic Vector Search qua **ChromaDB**) và tìm kiếm từ khóa chính xác (Lexical Search qua **BM25**).
-   - Thuật toán **Reciprocal Rank Fusion (RRF)** dung hợp kết quả từ hai bộ máy, loại bỏ nhiễu và đưa ra bằng chứng liên quan nhất.
+3. **Điều phối Workflow linh hoạt bằng LangGraph:**
+   - Hệ thống được cấu trúc dưới dạng Đồ thị trạng thái (`StateGraph`), bắt đầu từ `intent_router` đến `query_rewrite`, `hybrid_retrieval`, `evidence_grading` và `answer_generation`.
+   - Nếu phát hiện `emergency` hoặc `out-of-scope`, hệ thống lập tức đi tới node kếtthuốc sớm (`early_exit`) mà không chạy qua luồng RAG hay LLM sinh chữ, bảo đảm an toàn y tế và phản hồi tức thì.
 
-4. **Thẩm định Bằng chứng & Tự động Bổ sung Kiến thức (Evidence Grader & Web Crawler):**
-   - Bằng chứng truy xuất được tự động chấm điểm độ tin cậy. Nếu dữ liệu nội bộ không đủ độ tin cậy, hệ thống kích hoạt **Crawler chuyên dụng** tìm kiếm bổ sung từ các nguồn y khoa uy tín hàng đầu thế giới (`medlineplus.gov`, `dailymed.nlm.nih.gov`, `fda.gov`, `who.int`).
+4. **Tìm kiếm Lai (Hybrid Retrieval) & Thẩm định Bằng chứng:**
+   - Kết hợp tìm kiếm ngữ nghĩa (**ChromaDB Vector Store**) và tìm kiếm từ khóa (**BM25**), sau đó dung hợp kết quả bằng thuật toán **RRF (Reciprocal Rank Fusion)**.
+   - **Evidence Grader** tự động chấm điểm độ tin cậy của tài liệu. Nếu dữ liệu nội bộ không đủ thông tin, hệ thống sẽ kích hoạt **Web Crawler** để cào bổ sung từ các nguồn y khoa uy tín hàng đầu (`MedlinePlus`, `FDA`, `WHO`).
 
-5. **Tối ưu hóa AI Cục bộ (Local LLM với Ollama):**
-   - Hỗ trợ chạy các mô hình tinh chỉnh y tế cục bộ (như `Qwen3-4B-Medical` qua **Ollama** hoặc các mô hình GGUF) giúp bảo mật tuyệt đối thông tin nhạy cảm của người bệnh, tốc độ phản hồi siêu tốc và khả năng hoạt động offline.
+5. **Inference Cục bộ Hiệu năng cao với llama-server (GGUF):**
+   - Không sử dụng API cloud đắt đỏ, backend tự động quản lý vòng đời của **`llama-server`** để chạy suy luận mô hình lượng hóa **Qwen GGUF** (ví dụ: `models/qwen3-4b-thinking.gguf`).
+   - Khởi động và tắt tiến trình nền `llama-server` đồng bộ theo Server FastAPI qua cơ chế `lifespan`.
 
 ---
 
 ## 🏗️ Kiến trúc Hệ thống (System Architecture)
 
-Sơ đồ dưới đây mô tả luồng xử lý thực tế của hệ thống từ khi tiếp nhận câu hỏi đến khi trả lời:
+Sơ đồ mô tả luồng xử lý thực tế trong Đồ thị trạng thái LangGraph của hệ thống:
 
 ```mermaid
 flowchart TD
@@ -51,33 +51,30 @@ flowchart TD
     API --> Graph["LangGraph Workflow"]
     
     subgraph LangGraph ["Đồ thị xử lý LangGraph Pipeline"]
-        Entry["Safety Check Node"]
-        Entry -->|Phát hiện Cấp cứu| Emerg["Phản hồi Khẩn cấp / Gọi Cấp cứu"]
-        Entry -->|An toàn| Router["Query Router / Classifier Node"]
+        Router["PhoBERT ONNX Router Node"]
         
-        Router -->|Ngoài phạm vi| OutScope["Phản hồi Từ chối (Out-of-scope)"]
-        Router -->|Thiếu dữ kiện| Insuff["Phản hồi Yêu cầu thêm thông tin"]
+        Router -->|emergency| Emerg["Phản hồi Cấp cứu khẩn cấp (115)"]
+        Router -->|out-of-scope| OutScope["Phản hồi Từ chối ngoài phạm vi"]
         
-        Router -->|Rủi ro Cao / Chuyên sâu| RAGNode["Nhánh RAG (RAG Node)"]
-        Router -->|Rủi ro Thấp / Cơ bản| LLMNode["Nhánh QA (General QA Node)"]
+        Router -->|faq| FAQNode["General QA (Local LLM via llama-server)"]
+        Router -->|medical| Rewrite["ViT5 Query Rewrite Node"]
         
         subgraph RAG ["Luồng Hybrid RAG Pipeline"]
-            Ret["Hybrid Retrieval (ChromaDB + BM25)"] --> RRF["Dung hợp RRF"]
+            Rewrite --> Ret["Hybrid Retrieval (ChromaDB + BM25)"]
+            Ret --> RRF["Dung hợp RRF"]
             RRF --> Grader["Thẩm định bằng chứng (Evidence Grader)"]
             Grader -->|Bằng chứng yếu| Web["Cào dữ liệu uy tín (MedlinePlus, FDA, WHO)"]
             Web --> Grader
             Grader -->|Đạt yêu cầu| Gen["Sinh câu trả lời kèm Trích dẫn"]
         end
         
-        RAGNode --> Ret
-        LLMNode --> LocalLLM["Ollama Local LLM (Qwen-Medical)"]
+        Emerg --> EarlyExit["Early Exit Node"]
+        OutScope --> EarlyExit
     end
     
     Gen --> Validator["Kiểm định & Gắn cảnh báo rủi ro (Response Validator)"]
-    LocalLLM --> Validator
-    Emerg --> Output["Trở về kết quả cho Người dùng"]
-    OutScope --> Output
-    Insuff --> Output
+    FAQNode --> Validator
+    EarlyExit --> Output["Trở về kết quả cho Người dùng"]
     Validator --> Output
 ```
 
@@ -88,30 +85,29 @@ flowchart TD
 ```text
 .
 ├── backend/                       # Backend API Server & Xử lý RAG lõi
-│   ├── api.py                     # Máy chủ FastAPI (REST API & SSE Streaming)
+│   ├── api.py                     # Máy chủ FastAPI (lifespan quản lý llama-server)
 │   ├── main.py                    # Giao diện CLI hỗ trợ kiểm thử & Ingest dữ liệu
-│   ├── config.py                  # Cấu hình tham số trung tâm
-│   ├── requirements.txt           # Danh sách thư viện Python
-│   ├── data/                      # Dữ liệu y khoa (raw, processed, categories.json)
-│   ├── evaluation/                # Bộ kiểm thử & đánh giá tự động (RAGAs / Custom)
-│   └── src/                       # Các module xử lý nghiệp vụ lõi
-│       ├── langgraph_pipeline.py  # Điều phối workflow bằng LangGraph
-│       ├── rag_pipeline.py        # Luồng xử lý RAG truyền thống
-│       ├── hybrid_retriever.py    # Kết hợp Vector Store + BM25 + RRF
-│       ├── qwen_llm.py            # Giao tiếp với Ollama Local LLM
-│       ├── safety_guard.py        # Bảo vệ, phát hiện cấp cứu & từ chối
-│       ├── evidence_grader.py     # Chấm điểm độ tin cậy bằng chứng
-│       ├── web_crawler.py         # Tìm kiếm fallback từ nguồn uy tín
+│   ├── config.py                  # Cấu hình tham số và đường dẫn hệ thống
+│   ├── requirements.txt           # Thư viện Python (optimum, onnxruntime, langgraph...)
+│   ├── data/                      # Dữ liệu y khoa đã xử lý (processed)
+│   └── src/                       # Các module xử lý nghiệp vụ
+│       ├── langgraph_pipeline.py  # Định nghĩa đồ thị trạng thái LangGraph
+│       ├── query_router.py        # Định tuyến sử dụng PhoBERT ONNX
+│       ├── query_rewriter.py      # Viết lại câu bằng ViT5-base
+│       ├── llama_manager.py       # Quản lý tiến trình nền llama-server (GGUF)
+│       ├── hybrid_retriever.py    # Kết hợp ChromaDB + BM25 + RRF
+│       ├── response_generator.py  # Soạn thảo câu trả lời (Markdown đẹp, dễ đọc)
 │       └── ...
-├── frontend/                      # Giao diện Web App
-│   ├── src/                       # Mã nguồn React UI (Components, Hooks)
-│   ├── package.json               # Cấu hình & thư viện NodeJS
-│   └── vite.config.js             # Cấu hình Vite bundler
-├── notebooks/                     # Nghiên cứu, thực nghiệm & fine-tuning
-│   ├── 01-train-qwen3-medical-qa.ipynb # Huấn luyện LLM y tế
-│   └── 03_clean_rag_chunks_vi.ipynb    # Làm sạch dữ liệu RAG tiếng Việt
-├── models/                        # Thư mục lưu trữ cơ sở dữ liệu Vector & trọng số
-├── Modelfile                      # Định nghĩa cấu hình Ollama cho model Qwen Medical
+├── frontend/                      # Giao diện Web App (React + Vite)
+│   ├── src/                       # Mã nguồn giao diện và xử lý SSE Stream
+│   └── ...
+├── notebooks/                     # Nghiên cứu và Huấn luyện mô hình
+│   ├── 04_train_phobert_intent.ipynb # Train mô hình Intent Classifier
+│   └── 05_train_vit5_rewrite.ipynb    # Train mô hình Query Rewrite
+├── models/                        # Vector DB và Trọng số mô hình
+│   ├── phobert-intent-onnx/       # Mô hình định tuyến PhoBERT dạng ONNX
+│   ├── vit5-rewrite-onnx/         # Mô hình viết lại câu ViT5 dạng ONNX (nếu có)
+│   └── qwen3-4b-thinking.gguf     # Trọng số LLM phục vụ RAG
 └── README.md                      # Tài liệu hướng dẫn hệ thống
 ```
 
@@ -119,132 +115,73 @@ flowchart TD
 
 ## 🚀 Hướng dẫn Cài đặt & Khởi chạy
 
-Các lệnh dưới đây được hướng dẫn trên môi trường **Windows PowerShell**.
+Hệ thống được phát triển và chạy mượt mà trên môi trường **Windows PowerShell** hoặc **Linux/macOS**.
 
-### 1. Chuẩn bị Môi trường Backend
+### 1. Cấu hình Backend & Cài đặt Thư viện
 
-Tạo môi trường ảo, kích hoạt và cài đặt các thư viện cần thiết:
+Di chuyển vào thư mục dự án, tạo môi trường ảo và cài đặt các phụ thuộc cần thiết (đặc biệt là ONNX Runtime):
 
 ```powershell
-# Di chuyển vào thư mục dự án
-cd path\to\Intelligent-Medical-Assistant-for-Healthcare-Consultation
+# Di chuyển tới dự án
+cd Intelligent-Medical-Assistant-for-Healthcare-Consultation
 
 # Tạo và kích hoạt virtual environment
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
-# Cài đặt các gói phụ thuộc cho Backend
+# Cài đặt thư viện
 pip install --upgrade pip
 pip install -r backend/requirements.txt
 ```
 
-> [!NOTE]
-> Nếu PowerShell chặn lệnh kích hoạt do chính sách bảo mật, hãy chạy lệnh sau trước:
-> `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+### 2. Chuẩn bị Trọng số Mô hình
 
-Cấu hình biến môi trường bằng cách tạo file `backend/.env` (hoặc sao chép từ `backend/.env.example`):
-```env
-# Optional: Thiết lập token HuggingFace để tránh giới hạn tải model embedding
-HF_TOKEN=your_huggingface_token_here
+Hệ thống yêu cầu các file mô hình được đặt chính xác trong thư mục `models/` tại thư mục gốc:
 
-# Đặt true nếu muốn chạy chế độ test nhanh bằng hash embedding thay vì tải model thật
-FORCE_FALLBACK_EMBEDDINGS=false
-```
+1. **LLM (GGUF):** Tải file mô hình lượng hóa `qwen3-4b-thinking.gguf` (hoặc tương đương) và lưu vào `models/qwen3-4b-thinking.gguf`.
+2. **PhoBERT ONNX:** Đảm bảo thư mục mô hình định tuyến ONNX đã được đặt tại `models/phobert-intent-onnx/` (chứa `model.onnx`, `config.json`...).
 
-### 2. Chuẩn bị Mô hình Local AI (Ollama)
+### 3. Nạp Cơ sở dữ liệu Tri thức (Vector DB Ingestion)
 
-Hệ thống hoạt động 100% cục bộ (Local AI), không phụ thuộc vào API bên thứ ba để đảm bảo quyền riêng tư dữ liệu y tế. Bạn cần chuẩn bị Ollama:
-1. Cài đặt [Ollama](https://ollama.ai/).
-2. Tạo model y tế từ `Modelfile` có sẵn trong dự án:
-   ```powershell
-   ollama create qwen_medical -f Modelfile
-   ```
-
-### 3. Chuẩn bị Cơ sở Dữ liệu Kiến thức (Data Ingestion)
-
-Trước khi hỏi đáp, cần nạp dữ liệu y khoa, tạo embedding vector (ChromaDB) và chỉ mục từ khóa (BM25):
+Tiến hành xử lý dữ liệu thô, sinh chỉ mục tìm kiếm lai (Vector + BM25):
 
 ```powershell
 cd backend
 python main.py --ingest
 ```
 
-*Kết quả mong đợi:* Hệ thống làm sạch dữ liệu từ `data/raw`, tạo chunk tiếng Việt và lưu trữ vào `data/processed` cùng `models/chromadb`.
+### 4. Khởi chạy Ứng dụng Full-stack
 
-### 4. Khởi chạy Hệ thống Full-stack
+Mở hai terminal song song để chạy cả API backend và giao diện UI frontend.
 
-Bạn cần mở 2 cửa sổ terminal riêng biệt cho Backend và Frontend.
-
-#### 🌐 Terminal 1: Khởi chạy Backend API (FastAPI)
+#### 🌐 Terminal 1: Khởi chạy FastAPI Backend
 ```powershell
 .\.venv\Scripts\Activate.ps1
 cd backend
-python api.py
+uv run api.py
 ```
-*Backend API Server sẽ lắng nghe tại:* `http://localhost:8000` (Tài liệu Swagger UI tại `http://localhost:8000/docs`).
+*Lưu ý:* Khi khởi động, backend sẽ tự động gọi file thực thi `llama-server` chạy ngầm ở cổng 8080 để load mô hình GGUF. Đồng thời log `ONNX Model Loaded Successfully!` sẽ báo hiệu PhoBERT ONNX đã sẵn sàng.
 
-#### 🖥️ Terminal 2: Khởi chạy Frontend Web UI (React + Vite)
+#### 🖥️ Terminal 2: Khởi chạy React Web App
 ```powershell
 cd frontend
 npm install
 npm run dev
 ```
-*Giao diện Web App sẽ chạy tại:* `http://localhost:5173`. Open trình duyệt và bắt đầu trải nghiệm tư vấn sức khỏe!
+Truy cập trình duyệt theo địa chỉ: `http://localhost:5173`.
 
 ---
 
-## 💻 Trải nghiệm qua Giao diện CLI (Đóng gói tiện lợi)
+## 🛡️ Tiêu chuẩn Định dạng & An toàn Y khoa
 
-Bên cạnh Web UI, bạn có thể kiểm thử trực tiếp luồng RAG hoặc LangGraph qua giao diện dòng lệnh (CLI):
-
-```powershell
-cd backend
-
-# Hỏi một câu hỏi đơn lẻ
-python main.py --query "Tác dụng phụ của thuốc warfarin là gì?"
-
-# Hiển thị cấu trúc JSON chi tiết (bao gồm độ tin cậy, danh mục, nguồn trích dẫn)
-python main.py --query "Tôi có thể uống ibuprofen cùng với warfarin không?" --json
-
-# Chế độ hỏi đáp tương tác liên tục (Interactive Mode)
-python main.py
-```
-
----
-
-## 🧪 Đánh giá & Kiểm thử Chất lượng (Evaluation & Testing)
-
-Dự án tích hợp sẵn bộ kiểm thử tự động để đảm bảo tính an toàn y khoa tuyệt đối.
-
-### Kiểm thử tự động (Unit / Integration Tests)
-Chạy kiểm thử các vi kịch bản: nhận diện cấp cứu, từ chối câu hỏi ngoài phạm vi, và độ chính xác phân loại:
-
-```powershell
-cd backend
-python -m pytest evaluation/ -q
-```
-
-### Chạy bộ Đánh giá Chuẩn (Evaluation Pipeline)
-Đánh giá các chỉ số cốt lõi (Emergency Detection Rate, Out-of-scope Refusal, Citation Accuracy, Disclaimer Presence):
-
-```powershell
-cd backend
-python evaluation/evaluate.py
-```
-
----
-
-## 🛡️ Tiêu chuẩn An toàn Y khoa (Safety Protocols)
-
-Hệ thống tuân thủ nghiêm ngặt 4 nguyên tắc bảo vệ:
-1. **Ưu tiên Cấp cứu (Emergency Triage):** Nhận diện tức thì các từ khóa nguy hiểm đến tính mạng (đau ngực dữ dội, khó thở, ngộ độc, ý định tự sát...) để đưa ra chỉ dẫn gọi 115 lập tức.
-2. **Phạm vi Y khoa (Scope Restriction):** Chỉ trả lời các câu hỏi liên quan đến bệnh lý, thông tin thuốc, tương tác thuốc, chăm sóc sức khỏe thai kỳ/nhi khoa/người già. Từ chối câu hỏi lập trình, thời tiết, giải trí...
-3. **Trích dẫn Minh bạch (Mandatory Citation):** Mọi câu trả lời thuộc nhóm rủi ro cao buộc phải dựa trên bằng chứng RAG và ghi rõ nguồn tham khảo.
-4. **Cảnh báo Rủi ro Phân cấp (Risk-based Disclaimers):** Tự động đính kèm khuyến cáo dựa trên mức độ rủi ro (Ví dụ: câu hỏi về thai kỳ và nhi khoa luôn có cảnh báo rủi ro cao/nghiêm trọng).
+- **Ngắt dòng tự nhiên:** Câu trả lời từ LLM được tinh chỉnh bằng các hướng dẫn hệ thống chi tiết giúp tối ưu khả năng hiển thị Markdown (sử dụng danh sách thụt dòng, chia đoạn bằng khoảng trắng và bôi đậm từ khóa y học quan trọng).
+- **Phòng ngừa Khẩn cấp:** Mô hình định tuyến PhoBERT ONNX nhận diện các tình huống khẩn cấp chỉ trong vài mili-giây để đưa ra cảnh báo khẩn cấp hướng dẫn người dùng kết nối ngay với số điện thoại 115.
+- **Ràng buộc Chứng cứ:** Nếu thông tin truy xuất RAG không đủ hoặc bị chấm điểm thấp bởi *Evidence Grader*, hệ thống sẽ trả về câu từ chối chuẩn mực nhằm tránh hiện tượng ảo giác (hallucination) gây nguy hiểm trong tư vấn y khoa.
+- **Gắn Disclaimer:** Mọi câu trả lời liên quan tới bệnh lý đều tự động được đính kèm tuyên bố miễn trừ trách nhiệm pháp lý phù hợp với mức độ rủi ro đã phân loại.
 
 ---
 
 ## 💡 Hướng dẫn Xử lý Sự cố (Troubleshooting)
 
-- **Lỗi `Collection expecting embedding with dimension...`:** Xảy ra khi chuyển đổi mô hình embedding (giữa fallback hash và mô hình thật). Khắc phục bằng cách nạp lại dữ liệu: `cd backend && python main.py --ingest`.
-- **Lỗi không kết nối được Ollama:** Đảm bảo dịch vụ Ollama đang chạy ngầm trên máy (`http://localhost:11434`) và đã tải model `qwen_medical`. Nếu LLM gặp lỗi, pipeline RAG được thiết kế để tự động kích hoạt cơ chế rút trích thông tin trực tiếp (extractive fallback) từ tài liệu RAG nhằm đảm bảo phản hồi không bị gián đoạn.
+- **Lỗi `Failed to load ONNX model: ...`:** Kiểm tra xem bạn đã cài đặt `optimum[onnxruntime]` và `onnxruntime` chưa. Đồng thời kiểm tra xem thư mục `models/phobert-intent-onnx` có tồn tại ngay tại root của dự án không.
+- **Lỗi liên quan tới `llama-server`:** Đảm bảo file thực thi `llama-server` (hoặc `llama-server.exe` trên Windows) nằm trong PATH hệ thống hoặc được đặt trong thư mục `backend/` để manager có thể tìm thấy và tự động khởi chạy. Bạn có thể kiểm tra log tiến trình này trong file `backend/llama_log.txt`.
