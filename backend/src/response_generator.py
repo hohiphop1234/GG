@@ -24,9 +24,16 @@ SYSTEM_PROMPT = """You are a trusted medical information assistant that synthesi
 
 ## Answer Structure
 - Start with a **direct, extremely concise answer** to the user's question (1-2 sentences).
-- ONLY provide the most important supporting details. Do NOT write long paragraphs. Keep the entire answer short and straight to the point (under 5-6 sentences total if possible).
+- ONLY provide the most important supporting details. Keep the response short and straight to the point.
+- Use line breaks (newlines) and clear sections to avoid dense paragraphs.
 - If the question asks "which" or "what" (e.g., "thuốc nào", "which drugs"), list specific names/items found in the sources briefly.
 - If context documents don't contain a direct answer, explicitly state: "Thông tin trong nguồn dữ liệu không đủ để trả lời trực tiếp câu hỏi này".
+
+## Formatting Guidelines
+- Use markdown formatting to make the answer highly readable.
+- Use bold text for key terms, drug names, or headers.
+- Use bullet points (`- `) or numbered lists (`1. `) for listing items, and **always start each item on a new line**.
+- Insert a blank line between sections or list blocks.
 
 ## Quality Guidelines
 - **Synthesize**, don't copy-paste. Rewrite raw source text into natural, readable sentences.
@@ -34,6 +41,7 @@ SYSTEM_PROMPT = """You are a trusted medical information assistant that synthesi
 - Merge related information from multiple sources into coherent paragraphs.
 - For drug safety questions: mention specific drug names, age restrictions, and contraindications if available.
 - For pregnancy questions: do NOT use breastfeeding/lactation/postpartum evidence unless the user explicitly asks about breastfeeding.
+
 """
 
 
@@ -114,13 +122,6 @@ class ResponseGenerator:
         # Trực tiếp stream từ LLM mà không sinh câu phụ (disclaimer sẽ được thêm ở api.py)
         # Các logic interaction/side_effect (câu trả lời soạn sẵn) có thể trả về một cục
         
-        if classification.category == "drug_interaction":
-            interaction_answer = self._generate_interaction_answer(
-                question, chunks, classification.entities, intro="Dựa trên các nguồn được truy xuất:", closing="Vui lòng trao đổi với bác sĩ hoặc dược sĩ trước khi áp dụng."
-            )
-            if interaction_answer is not None:
-                yield interaction_answer[0]
-                return
 
         if self._is_side_effect_question(question):
             side_effect_answer = self._generate_side_effect_answer(

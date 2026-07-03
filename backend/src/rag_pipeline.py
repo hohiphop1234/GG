@@ -41,7 +41,7 @@ class MedicalRAGPipeline:
 
     def __init__(self, llm_client=None):
         self.llm_client = llm_client
-        self.safety_guard = SafetyGuard(llm_client=self.llm_client)
+        self.safety_guard = SafetyGuard()
         self.query_router = QueryRouter(llm_client=self.llm_client)
         self.embedding_manager = EmbeddingManager()
         self.vector_store = VectorStore(CHROMA_PERSIST_DIR)

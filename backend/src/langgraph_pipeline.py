@@ -1,5 +1,8 @@
 from typing import TypedDict, Optional, Any
 from langgraph.graph import StateGraph, END
+import logging
+
+logger = logging.getLogger(__name__)
 
 from config import CONFIDENCE_THRESHOLD, TOP_K
 from src.rag_pipeline import MedicalRAGPipeline
@@ -53,7 +56,7 @@ class MedicalState(TypedDict):
 class LangGraphPipeline:
     """
     Đồ thị điều phối luồng xử lý câu hỏi y khoa theo kiến trúc mới:
-    Risk Triage -> Intent Router -> Query Rewrite -> Hybrid Retrieval ->
+    Intent Router -> Query Rewrite -> Hybrid Retrieval ->
     Evidence Grading -> (Low Score -> Trusted Search -> Evidence Grading) -> 
     Answer Gen / LLM QA -> Medical Validation -> END
     """
@@ -84,7 +87,6 @@ class LangGraphPipeline:
         workflow = StateGraph(MedicalState)
         
         # Đăng ký các nodes
-        workflow.add_node("risk_triage", self.risk_triage_node)
         workflow.add_node("intent_router", self.intent_router_node)
         workflow.add_node("query_rewrite", self.query_rewrite_node)
         workflow.add_node("hybrid_retrieval", self.hybrid_retrieval_node)
@@ -96,17 +98,7 @@ class LangGraphPipeline:
         workflow.add_node("early_exit", self.early_exit_node)
         
         # Thiết lập điểm bắt đầu
-        workflow.set_entry_point("risk_triage")
-        
-        # Edges từ risk_triage
-        workflow.add_conditional_edges(
-            "risk_triage",
-            self._route_after_risk_triage,
-            {
-                "early_exit": "early_exit",
-                "continue": "intent_router"
-            }
-        )
+        workflow.set_entry_point("intent_router")
         
         # Edges từ intent_router
         workflow.add_conditional_edges(
@@ -151,28 +143,31 @@ class LangGraphPipeline:
     # 3. Định nghĩa các Node (Thực thi logic)
     # =====================================================================
     
-    def risk_triage_node(self, state: MedicalState) -> dict:
-        """Kiểm tra xem câu hỏi có phải tình huống khẩn cấp y tế hay không."""
-        question = state["question"]
-        
-        if self.safety_guard.is_emergency(question):
-            emergency_resp = self.safety_guard.emergency_response(question)
-            return {
-                "answer": emergency_resp["message"],
-                "risk_level": "critical",
-                "route": "early_exit",
-                "exit_type": "emergency"
-            }
-            
-        return {"route": "continue"}
-        
     def intent_router_node(self, state: MedicalState) -> dict:
         """Phân loại ý định câu hỏi để rẽ nhánh."""
         question = state["question"]
         classification = self.query_router.classify(question)
         
-        # 1. Out of scope
-        if classification.category == "out_of_scope":
+        # 1. Khẩn cấp (Emergency)
+        if classification.category == "emergency":
+            if self.safety_guard.is_emergency(question):
+                emergency_resp = self.safety_guard.emergency_response(question)
+                return {
+                    "category": classification.category,
+                    "risk_level": classification.risk_level,
+                    "confidence": classification.confidence,
+                    "route": "early_exit",
+                    "exit_type": "emergency",
+                    "answer": emergency_resp["message"]
+                }
+            else:
+                logger.info(f"[{question}] Classified as emergency, but SafetyGuard verification failed. Falling back to medical.")
+                classification.category = "medical"
+                classification.risk_level = "high"
+                classification.requires_rag = True
+            
+        # 2. Out of scope
+        if classification.category == "out-of-scope":
             out_resp = self.safety_guard.out_of_scope_response(question)
             return {
                 "category": classification.category,
@@ -182,7 +177,7 @@ class LangGraphPipeline:
                 "answer": out_resp["message"]
             }
             
-        # 2. Thiếu độ tin cậy phân loại
+        # 3. Thiếu độ tin cậy phân loại
         if classification.confidence < CONFIDENCE_THRESHOLD:
             insuf_resp = self.safety_guard.insufficient_evidence_response(question)
             return {
@@ -193,7 +188,7 @@ class LangGraphPipeline:
                 "answer": insuf_resp["message"]
             }
             
-        # 3. FAQ / Greeting / Chào hỏi -> Gọi trực tiếp LLM
+        # 4. FAQ / Greeting / Chào hỏi -> Gọi trực tiếp LLM
         if classification.category == "faq":
             return {
                 "category": classification.category,
@@ -202,13 +197,13 @@ class LangGraphPipeline:
                 "route": "faq"
             }
             
-        # 4. Drug Query -> Đi qua luồng RAG
+        # 5. Medical Query -> Đi qua luồng RAG
         return {
             "category": classification.category,
             "risk_level": classification.risk_level,
             "confidence": classification.confidence,
             "entities": classification.entities,
-            "route": "drug_query"
+            "route": "medical"
         }
         
     def query_rewrite_node(self, state: MedicalState) -> dict:
@@ -224,8 +219,8 @@ class LangGraphPipeline:
         
         # Khởi dựng QueryClassification để tính toán top_k của retrieval
         classification = QueryClassification(
-            intent=state.get("category", "drug_query"),
-            category=state.get("category", "drug_query"),
+            intent=state.get("category", "medical"),
+            category=state.get("category", "medical"),
             entities=state.get("entities") or [],
             risk_level=state.get("risk_level", "high"),
             confidence=state.get("confidence", 0.9),
@@ -288,8 +283,8 @@ class LangGraphPipeline:
         chunks = state.get("relevant_chunks") or []
         
         classification = QueryClassification(
-            intent=state.get("category", "drug_query"),
-            category=state.get("category", "drug_query"),
+            intent=state.get("category", "medical"),
+            category=state.get("category", "medical"),
             entities=state.get("entities") or [],
             risk_level=state.get("risk_level", "high"),
             confidence=state.get("confidence", 0.9),
@@ -351,11 +346,6 @@ class LangGraphPipeline:
 # =====================================================================
 # 4. Routing Functions
 # =====================================================================
-    
-    def _route_after_risk_triage(self, state: MedicalState) -> str:
-        if state.get("route") == "early_exit":
-            return "early_exit"
-        return "continue"
         
     def _route_after_intent_router(self, state: MedicalState) -> str:
         route = state.get("route")
@@ -390,8 +380,9 @@ class LangGraphPipeline:
     # 5. Hàm thực thi chính
     # =====================================================================
     
-    def process_query(self, question: str) -> dict:
+    def process_query(self, question: str, is_emergency: bool = False) -> dict:
         """Entrypoint cho toàn bộ đồ thị"""
+        logger.info(f"[{question}] Started non-streaming flow via process_query...")
         initial_state = {
             "question": question,
             "rewritten_query": None,
@@ -466,26 +457,20 @@ class LangGraphPipeline:
             "is_valid": None
         }
         
-        # 2. Chạy Risk Triage
-        triage_update = self.risk_triage_node(state)
-        state.update(triage_update)
-        if self._route_after_risk_triage(state) == "early_exit":
-            exit_update = self.early_exit_node(state)
-            state.update(exit_update)
-            yield {"type": "metadata", "data": {"type": "emergency", "message": state["answer"]}}
-            return
-            
-        # 3. Chạy Intent Router
+        # 2. Chạy Intent Router
+        logger.info(f"[{question}] Started flow. Routing intent...")
         router_update = self.intent_router_node(state)
         state.update(router_update)
+        logger.info(f"[{question}] Intent Router Result: Route={state.get('route')}, Category={state.get('category')}")
         route = self._route_after_intent_router(state)
         if route == "early_exit":
+            logger.info(f"[{question}] Taking early exit route. Reason: {state.get('exit_type')}")
             exit_update = self.early_exit_node(state)
             state.update(exit_update)
             yield {"type": "metadata", "data": {"type": state["exit_type"], "message": state["answer"]}}
             return
             
-        # 4. Phân nhánh FAQ vs RAG (Drug Query)
+        # 3. Phân nhánh FAQ vs RAG (Medical)
         if route == "general_qa":
             # Gửi metadata trước
             yield {
@@ -500,15 +485,18 @@ class LangGraphPipeline:
                 }
             }
             # Stream câu trả lời FAQ từ LLM
+            logger.info(f"[{question}] Streaming FAQ response...")
             answer_parts = []
             for token in self.llm.stream_answer(state["question"]):
                 answer_parts.append(token)
                 yield {"type": "token", "content": token}
             
             # Chạy Validation node để kiểm tra câu trả lời
+            logger.info(f"[{question}] Running Medical Validation for FAQ...")
             state["answer"] = "".join(answer_parts)
             val_update = self.medical_validation_node(state)
             state.update(val_update)
+            logger.info(f"[{question}] Validation Result: Valid={state.get('is_valid')}")
             
             # Gửi thông báo an toàn nếu phát hiện vi phạm y tế nguy hiểm
             if not state["is_valid"]:
@@ -521,23 +509,30 @@ class LangGraphPipeline:
                 yield {"type": "token", "content": f"\n\n⚠️ **[Cảnh báo an toàn]**: {warning_text}"}
             return
             
-        # Luồng RAG (Drug Query)
-        # 5. Query Rewrite
+        # Luồng RAG (Medical Query)
+        # 4. Query Rewrite
+        logger.info(f"[{question}] Routing to RAG. Rewriting query...")
         rewrite_update = self.query_rewrite_node(state)
         state.update(rewrite_update)
+        logger.info(f"[{question}] Rewritten Query: '{state.get('rewritten_query')}'")
         
-        # 6. Hybrid Retrieval
+        # 5. Hybrid Retrieval
+        logger.info(f"[{question}] Performing Hybrid Retrieval...")
         retrieve_update = self.hybrid_retrieval_node(state)
         state.update(retrieve_update)
+        logger.info(f"[{question}] Retrieved {len(state.get('retrieved_chunks') or [])} chunks.")
         
-        # 7. Evidence Grading
+        # 6. Evidence Grading
+        logger.info(f"[{question}] Grading evidence...")
         while True:
             grade_update = self.evidence_grading_node(state)
             state.update(grade_update)
             
             next_step = self._route_after_evidence_grading(state)
+            logger.info(f"[{question}] Next step after grading: {next_step} (Score: {state.get('evidence_score')})")
             if next_step == "low_score":
                 # Tìm kiếm bổ sung (web crawl)
+                logger.info(f"[{question}] Initiating Trusted Search (Web Crawl)...")
                 crawl_update = self.trusted_search_node(state)
                 state.update(crawl_update)
                 # Tiếp tục vòng lặp để chấm điểm lại tài liệu mới crawl
@@ -550,7 +545,7 @@ class LangGraphPipeline:
             else: # high_score
                 break
                 
-        # 8. Sinh nguồn và gửi metadata trước cho client
+        # 7. Sinh nguồn và gửi metadata trước cho client
         sources = []
         for i, chunk in enumerate(state["relevant_chunks"] or [], 1):
             metadata = chunk.get("metadata", {})
@@ -573,10 +568,10 @@ class LangGraphPipeline:
             }
         }
         
-        # 9. Stream câu trả lời RAG
+        # 8. Stream câu trả lời RAG
         classification = QueryClassification(
-            intent=state.get("category", "drug_query"),
-            category=state.get("category", "drug_query"),
+            intent=state.get("category", "medical"),
+            category=state.get("category", "medical"),
             entities=state.get("entities") or [],
             risk_level=state.get("risk_level", "high"),
             confidence=state.get("confidence", 0.9),
@@ -584,6 +579,7 @@ class LangGraphPipeline:
         )
         
         answer_parts = []
+        logger.info(f"[{question}] Streaming RAG Answer Generation...")
         for token in self.response_generator.generate_stream(
             state["question"],
             state["relevant_chunks"],
@@ -592,10 +588,12 @@ class LangGraphPipeline:
             answer_parts.append(token)
             yield {"type": "token", "content": token}
             
-        # 10. Chạy Validation node
+        # 9. Chạy Validation node
+        logger.info(f"[{question}] Running Medical Validation for RAG...")
         state["answer"] = "".join(answer_parts)
         val_update = self.medical_validation_node(state)
         state.update(val_update)
+        logger.info(f"[{question}] Validation Result: Valid={state.get('is_valid')}")
         
         if not state["is_valid"]:
             issues = state.get("validation_issues", [])

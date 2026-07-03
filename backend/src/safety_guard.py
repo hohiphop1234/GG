@@ -58,9 +58,8 @@ def get_disclaimer(risk_level: str) -> str:
 class SafetyGuard:
     """Safety checks that run before and after retrieval."""
 
-    def __init__(self, llm_client=None):
+    def __init__(self):
         self.triggers = [re.compile(rf"\b{p}\b", re.IGNORECASE) for p in EMERGENCY_TRIGGERS]
-        self.llm = llm_client
 
     def is_emergency(self, query: str) -> bool:
         q_norm = normalize_for_match(query)
@@ -69,25 +68,7 @@ class SafetyGuard:
         if not any(t.search(q_norm) for t in self.triggers):
             return False
             
-        # 2. Nếu không có LLM client -> mặc định return True (fall back to old behavior if needed)
-        if not self.llm:
-            return True
-            
-        # 3. LLM verify (Zero-shot)
-        prompt = """
-Bạn là chuyên gia y tế. Đọc câu hỏi của người dùng và xác định xem đây có phải là TÌNH HUỐNG CẤP CỨU Y TẾ KHẨN CẤP hay không.
-- Nếu người dùng đang kể triệu chứng nguy hiểm xảy ra với họ/người thân -> Trả lời YES.
-- Nếu họ chỉ hỏi kiến thức chung chung (dấu hiệu nhận biết, nguyên nhân, cách phòng) -> Trả lời NO.
-
-Chỉ trả lời đúng 1 chữ: YES hoặc NO.
-"""
-        try:
-            response = self.llm.generate_answer(query, system_prompt=prompt, max_new_tokens=512)
-            if "Lỗi" in response or "Exception" in response:
-                return True  # Fallback to emergency warning if LLM fails
-            return "YES" in response.upper()
-        except Exception:
-            return True
+        return True
 
     def emergency_response(self, query: str) -> dict[str, Any]:
         return {
