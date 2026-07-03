@@ -90,11 +90,11 @@ class LangGraphPipeline:
         workflow.add_node("intent_router", self.intent_router_node)
         workflow.add_node("query_rewrite", self.query_rewrite_node)
         workflow.add_node("hybrid_retrieval", self.hybrid_retrieval_node)
-        workflow.add_node("evidence_grading", self.evidence_grading_node)
-        workflow.add_node("trusted_search", self.trusted_search_node)
-        workflow.add_node("general_qa", self.general_qa_node)
-        workflow.add_node("answer_generation", self.answer_generation_node)
-        workflow.add_node("medical_validation", self.medical_validation_node)
+        workflow.add_node("retrieval_assessment", self.retrieval_assessment_node)
+        workflow.add_node("web_retrieval", self.web_retrieval_node)
+        workflow.add_node("direct_llm", self.direct_llm_node)
+        workflow.add_node("rag_generation", self.rag_generation_node)
+        workflow.add_node("response_validation", self.response_validation_node)
         workflow.add_node("early_exit", self.early_exit_node)
         
         # Thiết lập điểm bắt đầu
@@ -106,35 +106,35 @@ class LangGraphPipeline:
             self._route_after_intent_router,
             {
                 "early_exit": "early_exit",
-                "general_qa": "general_qa",
+                "direct_llm": "direct_llm",
                 "query_rewrite": "query_rewrite"
             }
         )
         
         # Các bước tuần tự của RAG
         workflow.add_edge("query_rewrite", "hybrid_retrieval")
-        workflow.add_edge("hybrid_retrieval", "evidence_grading")
+        workflow.add_edge("hybrid_retrieval", "retrieval_assessment")
         
-        # Edges từ evidence_grading (rẽ nhánh dựa trên điểm evidence)
+        # Edges từ retrieval_assessment (rẽ nhánh dựa trên điểm evidence)
         workflow.add_conditional_edges(
-            "evidence_grading",
-            self._route_after_evidence_grading,
+            "retrieval_assessment",
+            self._route_after_retrieval_assessment,
             {
-                "low_score": "trusted_search",
-                "high_score": "answer_generation",
+                "low_score": "web_retrieval",
+                "high_score": "rag_generation",
                 "early_exit": "early_exit"
             }
         )
         
         # Tìm kiếm bổ sung xong quay lại chấm điểm evidence mới
-        workflow.add_edge("trusted_search", "evidence_grading")
+        workflow.add_edge("web_retrieval", "retrieval_assessment")
         
         # Cả luồng RAG lẫn LLM QA đều đi qua hậu kiểm validation
-        workflow.add_edge("general_qa", "medical_validation")
-        workflow.add_edge("answer_generation", "medical_validation")
+        workflow.add_edge("direct_llm", "response_validation")
+        workflow.add_edge("rag_generation", "response_validation")
         
         # Điểm kết thúc
-        workflow.add_edge("medical_validation", END)
+        workflow.add_edge("response_validation", END)
         workflow.add_edge("early_exit", END)
         
         return workflow.compile()
@@ -237,7 +237,7 @@ class LangGraphPipeline:
         )
         return {"retrieved_chunks": results}
         
-    def evidence_grading_node(self, state: MedicalState) -> dict:
+    def retrieval_assessment_node(self, state: MedicalState) -> dict:
         """Đánh giá chất lượng của evidence tìm được."""
         question = state["question"]
         chunks = state.get("retrieved_chunks") or []
@@ -251,7 +251,7 @@ class LangGraphPipeline:
             "needs_crawl": graded.needs_crawl
         }
         
-    def trusted_search_node(self, state: MedicalState) -> dict:
+    def web_retrieval_node(self, state: MedicalState) -> dict:
         """Tìm kiếm bổ sung trên web nếu KB không đủ thông tin."""
         question = state["question"]
         entities = state.get("entities") or []
@@ -268,7 +268,7 @@ class LangGraphPipeline:
             "crawl_attempted": True
         }
         
-    def general_qa_node(self, state: MedicalState) -> dict:
+    def direct_llm_node(self, state: MedicalState) -> dict:
         """Trả lời câu hỏi FAQ không cần thông tin RAG."""
         question = state["question"]
         answer = self.llm.generate_answer(question)
@@ -277,7 +277,7 @@ class LangGraphPipeline:
             "sources": []
         }
         
-    def answer_generation_node(self, state: MedicalState) -> dict:
+    def rag_generation_node(self, state: MedicalState) -> dict:
         """Sinh câu trả lời tổng hợp từ các relevant chunks."""
         question = state["question"]
         chunks = state.get("relevant_chunks") or []
@@ -302,7 +302,7 @@ class LangGraphPipeline:
             "sources": response.get("sources") or []
         }
         
-    def medical_validation_node(self, state: MedicalState) -> dict:
+    def response_validation_node(self, state: MedicalState) -> dict:
         """Hậu kiểm an toàn y tế và bổ sung disclaimer."""
         answer = state.get("answer") or ""
         chunks = state.get("relevant_chunks") or []
@@ -352,11 +352,11 @@ class LangGraphPipeline:
         if route == "early_exit":
             return "early_exit"
         elif route == "faq":
-            return "general_qa"
+            return "direct_llm"
         else:
             return "query_rewrite"
             
-    def _route_after_evidence_grading(self, state: MedicalState) -> str:
+    def _route_after_retrieval_assessment(self, state: MedicalState) -> str:
         relevant = state.get("relevant_chunks") or []
         needs_crawl = state.get("needs_crawl", False)
         crawl_attempted = state.get("crawl_attempted", False)
@@ -471,7 +471,7 @@ class LangGraphPipeline:
             return
             
         # 3. Phân nhánh FAQ vs RAG (Medical)
-        if route == "general_qa":
+        if route == "direct_llm":
             # Gửi metadata trước
             yield {
                 "type": "metadata",
@@ -480,7 +480,7 @@ class LangGraphPipeline:
                     "sources": [],
                     "category": state["category"],
                     "risk_level": state["risk_level"],
-                    "route": "general_qa",
+                    "route": "direct_llm",
                     "disclaimer": get_disclaimer(state["risk_level"])
                 }
             }
@@ -492,9 +492,9 @@ class LangGraphPipeline:
                 yield {"type": "token", "content": token}
             
             # Chạy Validation node để kiểm tra câu trả lời
-            logger.info(f"[{question}] Running Medical Validation for FAQ...")
+            logger.info(f"[{question}] Running Response Validation for FAQ...")
             state["answer"] = "".join(answer_parts)
-            val_update = self.medical_validation_node(state)
+            val_update = self.response_validation_node(state)
             state.update(val_update)
             logger.info(f"[{question}] Validation Result: Valid={state.get('is_valid')}")
             
@@ -522,18 +522,18 @@ class LangGraphPipeline:
         state.update(retrieve_update)
         logger.info(f"[{question}] Retrieved {len(state.get('retrieved_chunks') or [])} chunks.")
         
-        # 6. Evidence Grading
-        logger.info(f"[{question}] Grading evidence...")
+        # 6. Retrieval Assessment
+        logger.info(f"[{question}] Assessing retrieval...")
         while True:
-            grade_update = self.evidence_grading_node(state)
+            grade_update = self.retrieval_assessment_node(state)
             state.update(grade_update)
             
-            next_step = self._route_after_evidence_grading(state)
-            logger.info(f"[{question}] Next step after grading: {next_step} (Score: {state.get('evidence_score')})")
+            next_step = self._route_after_retrieval_assessment(state)
+            logger.info(f"[{question}] Next step after assessment: {next_step} (Score: {state.get('evidence_score')})")
             if next_step == "low_score":
                 # Tìm kiếm bổ sung (web crawl)
-                logger.info(f"[{question}] Initiating Trusted Search (Web Crawl)...")
-                crawl_update = self.trusted_search_node(state)
+                logger.info(f"[{question}] Initiating Web Retrieval (Web Crawl)...")
+                crawl_update = self.web_retrieval_node(state)
                 state.update(crawl_update)
                 # Tiếp tục vòng lặp để chấm điểm lại tài liệu mới crawl
                 continue
@@ -589,9 +589,9 @@ class LangGraphPipeline:
             yield {"type": "token", "content": token}
             
         # 9. Chạy Validation node
-        logger.info(f"[{question}] Running Medical Validation for RAG...")
+        logger.info(f"[{question}] Running Response Validation for RAG...")
         state["answer"] = "".join(answer_parts)
-        val_update = self.medical_validation_node(state)
+        val_update = self.response_validation_node(state)
         state.update(val_update)
         logger.info(f"[{question}] Validation Result: Valid={state.get('is_valid')}")
         

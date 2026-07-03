@@ -46,36 +46,40 @@ Dự án được xây dựng và tối ưu hóa theo xu hướng hiện đại 
 Sơ đồ mô tả luồng xử lý thực tế trong Đồ thị trạng thái LangGraph của hệ thống:
 
 ```mermaid
-flowchart TD
-    User["Người dùng (Web UI / CLI)"] --> API["FastAPI Server (/api/chat)"]
-    API --> Graph["LangGraph Workflow"]
-    
-    subgraph LangGraph ["Đồ thị xử lý LangGraph Pipeline"]
-        Router["PhoBERT ONNX Router Node"]
-        
-        Router -->|emergency| Emerg["Phản hồi Cấp cứu khẩn cấp (115)"]
-        Router -->|out-of-scope| OutScope["Phản hồi Từ chối ngoài phạm vi"]
-        
-        Router -->|faq| FAQNode["General QA (Local LLM via llama-server)"]
-        Router -->|medical| Rewrite["ViT5 Query Rewrite Node"]
-        
-        subgraph RAG ["Luồng Hybrid RAG Pipeline"]
-            Rewrite --> Ret["Hybrid Retrieval (ChromaDB + BM25)"]
-            Ret --> RRF["Dung hợp RRF"]
-            RRF --> Grader["Thẩm định bằng chứng (Evidence Grader)"]
-            Grader -->|Bằng chứng yếu| Web["Cào dữ liệu uy tín (MedlinePlus, FDA, WHO)"]
-            Web --> Grader
-            Grader -->|Đạt yêu cầu| Gen["Sinh câu trả lời kèm Trích dẫn"]
-        end
-        
-        Emerg --> EarlyExit["Early Exit Node"]
-        OutScope --> EarlyExit
-    end
-    
-    Gen --> Validator["Kiểm định & Gắn cảnh báo rủi ro (Response Validator)"]
-    FAQNode --> Validator
-    EarlyExit --> Output["Trở về kết quả cho Người dùng"]
-    Validator --> Output
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	intent_router(intent_router)
+	query_rewrite(query_rewrite)
+	hybrid_retrieval(hybrid_retrieval)
+	retrieval_assessment(retrieval_assessment)
+	web_retrieval(web_retrieval)
+	direct_llm(direct_llm)
+	rag_generation(rag_generation)
+	response_validation(response_validation)
+	early_exit(early_exit)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> intent_router;
+	direct_llm --> response_validation;
+	hybrid_retrieval --> retrieval_assessment;
+	intent_router -.-> direct_llm;
+	intent_router -.-> early_exit;
+	intent_router -.-> query_rewrite;
+	query_rewrite --> hybrid_retrieval;
+	rag_generation --> response_validation;
+	retrieval_assessment -.-> early_exit;
+	retrieval_assessment -. &nbsp;high_score&nbsp; .-> rag_generation;
+	retrieval_assessment -. &nbsp;low_score&nbsp; .-> web_retrieval;
+	web_retrieval --> retrieval_assessment;
+	early_exit --> __end__;
+	response_validation --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
 ```
 
 ---
