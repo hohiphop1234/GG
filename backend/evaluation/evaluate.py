@@ -11,13 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.rag_pipeline import MedicalRAGPipeline
+from src.langgraph_pipeline import LangGraphPipeline
+from src.ingest_db import ingest_data
 from src.response_validator import ResponseValidator
 from src.utils import load_json
 
 
 class MedicalRAGEvaluator:
-    def __init__(self, pipeline: MedicalRAGPipeline):
+    def __init__(self, pipeline: LangGraphPipeline):
         self.pipeline = pipeline
         self.validator = ResponseValidator()
 
@@ -118,9 +119,10 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", help="Print raw JSON")
     args = parser.parse_args()
 
-    pipeline = MedicalRAGPipeline()
     if args.ingest:
-        pipeline.ingest_data()
+        ingest_data()
+
+    pipeline = LangGraphPipeline()
 
     evaluator = MedicalRAGEvaluator(pipeline)
     results = evaluator.run_evaluation(args.dataset)

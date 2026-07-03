@@ -4,7 +4,8 @@ import argparse
 import json
 import sys
 
-from src.rag_pipeline import MedicalRAGPipeline
+from src.langgraph_pipeline import LangGraphPipeline
+from src.ingest_db import ingest_data
 
 
 def _configure_stdout() -> None:
@@ -39,13 +40,13 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", help="Print raw JSON result")
     args = parser.parse_args()
 
-    pipeline = MedicalRAGPipeline()
-
     if args.ingest:
         print("Ingesting data...")
-        stats = pipeline.ingest_data()
+        stats = ingest_data()
         print(f"Done: {stats}")
         return
+
+    pipeline = LangGraphPipeline()
 
     if args.query:
         result = pipeline.process_query(args.query)

@@ -26,8 +26,7 @@ class QueryRouter:
             if not os.path.isabs(model_path):
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 backend_dir = os.path.dirname(current_dir)
-                project_root = os.path.dirname(backend_dir)
-                resolved_model_path = os.path.join(project_root, model_path)
+                resolved_model_path = os.path.join(backend_dir, model_path)
             else:
                 resolved_model_path = model_path
 
@@ -47,6 +46,23 @@ class QueryRouter:
             print(f"Failed to load ONNX model: {e}. Falling back to LLM.")
 
     def classify(self, query: str) -> QueryClassification:
+        # Rule-based bypass for common greetings and identity questions (FAQ)
+        normalized_query = query.strip().lower().replace("?", "").replace(".", "").replace("!", "")
+        faq_keywords = [
+            "xin chào", "chào bạn", "hello", "hi", "chào bsi", "chào bác sĩ", "alo",
+            "bạn là ai", "bạn là gì", "tên là gì", "ai đây", "giới thiệu về bản thân",
+            "chức năng của bạn", "bạn làm được gì", "công dụng của bạn", "trợ lý gì"
+        ]
+        if any(kw in normalized_query for kw in faq_keywords) or normalized_query in ["chào", "hi"]:
+            return QueryClassification(
+                intent="faq",
+                category="faq",
+                entities=[],
+                risk_level="low",
+                confidence=1.0,
+                requires_rag=False
+            )
+
         if self.use_onnx:
             try:
                 inputs = self.tokenizer(

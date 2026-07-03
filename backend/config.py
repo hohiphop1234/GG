@@ -32,6 +32,7 @@ FORCE_FALLBACK_EMBEDDINGS = (
 
 # Vector store
 CHROMA_PERSIST_DIR = str(BASE_DIR / "models" / "chromadb")
+BM25_INDEX_PATH = str(BASE_DIR / "models" / "bm25_index.pkl")
 COLLECTION_NAME_VI = "medical_rag_vi"
 
 # Retrieval
@@ -74,5 +75,12 @@ CRAWL_WHITELIST = [
     "moh.gov.vn",
     "vncdc.gov.vn",
 ]
+ENGLISH_CRAWL_WHITELIST = [
+    "mayoclinic.org",
+    "webmd.com",
+    "nhs.uk",
+    "drugs.com",
+]
 CRAWL_CACHE_DIR = str(BASE_DIR / "data" / "crawl_cache")
 CRAWL_RATE_LIMIT = float(os.getenv("CRAWL_RATE_LIMIT", "2"))
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")

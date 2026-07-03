@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import { Send, Activity, Stethoscope, AlertTriangle, Brain, ChevronDown, ChevronRight } from 'lucide-react';
+import { Send, Activity, Stethoscope, AlertTriangle, Brain, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import './index.css';
 
 // Tách nội dung <think>...</think> ra khỏi phần trả lời chính
@@ -161,15 +161,29 @@ function BotMessage({ msg }) {
   );
 }
 
+const initialWelcomeMessage = [
+  {
+    id: 1,
+    role: 'bot',
+    content: 'Chào bạn, mình là Trợ lý Y tế AI. Bạn cần tư vấn thông tin gì về sức khỏe hay thuốc men hôm nay?',
+    metadata: null
+  }
+];
+
 function App() {
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      role: 'bot',
-      content: 'Chào bạn, mình là Trợ lý Y tế AI. Bạn cần tư vấn thông tin gì về sức khỏe hay thuốc men hôm nay?',
-      metadata: null
+  const [messages, setMessages] = useState(() => {
+    const saved = localStorage.getItem('chat_messages');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Clear any dangling streaming flags
+        return parsed.map(msg => ({ ...msg, _isStreaming: false }));
+      } catch (e) {
+        console.error("Error parsing saved messages:", e);
+      }
     }
-  ]);
+    return initialWelcomeMessage;
+  });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);   // Đang chờ server phản hồi
   const [isStreaming, setIsStreaming] = useState(false); // Đang nhận token
@@ -185,6 +199,10 @@ function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading, isStreaming, scrollToBottom]);
+
+  useEffect(() => {
+    localStorage.setItem('chat_messages', JSON.stringify(messages));
+  }, [messages]);
 
   useEffect(() => {
     // Fetch stats on load
@@ -294,6 +312,9 @@ function App() {
                   content: data.data.message,
                   metadata: { type: data.data.type }
                 }]);
+                if (data.data.type === 'emergency') {
+                  setIsEmergency(true);
+                }
                 setIsLoading(false);
                 return;
               }
@@ -307,6 +328,9 @@ function App() {
                   sources: data.data.sources,
                   disclaimer: data.data.disclaimer
                 };
+                if (data.data.risk_level === 'critical' || data.data.risk_level === 'high') {
+                  setIsEmergency(true);
+                }
                 setMessages(prev => [...prev, {
                   id: botMsgId,
                   role: 'bot',
@@ -387,6 +411,44 @@ function App() {
         <h1><Activity size={28} /> Health AI Assistant</h1>
         <div className="stats">
           <button
+            className="clear-btn"
+            onClick={() => {
+              if (window.confirm("Bạn có chắc chắn muốn xóa toàn bộ lịch sử trò chuyện?")) {
+                localStorage.removeItem('chat_messages');
+                setMessages(initialWelcomeMessage);
+              }
+            }}
+            title="Xóa lịch sử trò chuyện"
+            style={{
+              padding: '8px',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              background: 'transparent',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s ease',
+              marginRight: '8px',
+              width: '38px',
+              height: '38px',
+              boxSizing: 'border-box'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.color = '#ef4444';
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.color = 'var(--text-muted)';
+              e.currentTarget.style.borderColor = 'var(--border)';
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            <Trash2 size={18} />
+          </button>
+          <button
             className={`sos-btn ${isEmergency ? 'active' : ''}`}
             onClick={() => setIsEmergency(!isEmergency)}
             title="Bật/Tắt chế độ cấp cứu"
@@ -435,8 +497,13 @@ function App() {
                   <div className="sources-list">
                     {msg.metadata.sources.map((src) => (
                       <div key={src.index} className="source-card">
-                        <div className="source-title">
+                        <div className="source-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                           <strong>[{src.index}] {src.title}</strong>
+                          {src.publish_date && (
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>
+                              📅 {src.publish_date.split('T')[0]}
+                            </span>
+                          )}
                         </div>
                         <p className="source-content">{src.content}</p>
                       </div>

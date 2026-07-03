@@ -91,7 +91,7 @@ async def chat_endpoint(request: ChatRequest):
 async def stats_endpoint():
     try:
         pipeline = get_pipeline()
-        stats = pipeline.rag_pipeline.vector_store.get_stats()
+        stats = pipeline.vector_store.get_stats()
         return {"stats": stats}
     except Exception as e:
         logger.error(f"Error getting stats: {e}")

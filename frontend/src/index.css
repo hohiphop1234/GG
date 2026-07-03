@@ -24,15 +24,20 @@ body {
   background: var(--bg-gradient);
   color: var(--text-main);
   height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
   overflow: hidden;
 }
 
-.app-container {
+#root {
   width: 100%;
-  max-width: 1000px;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.app-container {
+  width: 80%;
+  max-width: 1600px;
   height: 90vh;
   display: flex;
   flex-direction: column;
@@ -98,6 +103,16 @@ body {
   background: #ef4444;
   color: white;
   box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+  animation: sos-pulse 1.5s infinite alternate;
+}
+
+@keyframes sos-pulse {
+  from {
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+  }
+  to {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 1);
+  }
 }
 
 /* Chat Area */

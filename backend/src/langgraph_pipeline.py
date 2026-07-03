@@ -4,12 +4,32 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from config import CONFIDENCE_THRESHOLD, TOP_K
-from src.rag_pipeline import MedicalRAGPipeline
+from config import CONFIDENCE_THRESHOLD, TOP_K, CHROMA_PERSIST_DIR, BM25_INDEX_PATH
 from src.qwen_llm import QwenMedicalLLM
 from src.query_rewriter import QueryRewriter
 from src.query_router import QueryClassification
 from src.safety_guard import get_disclaimer
+from src.safety_guard import SafetyGuard
+from src.embeddings import EmbeddingManager
+from src.vector_store import VectorStore
+from src.bm25_store import BM25Store
+from src.hybrid_retriever import HybridRetriever
+from src.evidence_grader import EvidenceGrader
+from src.web_crawler import WebCrawler
+from src.response_generator import ResponseGenerator
+from src.response_validator import ResponseValidator
+from src.query_router import QueryRouter
+
+FAQ_SYSTEM_PROMPT = """You are a helpful and friendly Vietnamese medical AI assistant.
+Your task is to handle general greetings, introduce your capabilities, and answer basic non-clinical questions.
+
+Core Rules:
+1. Greet the user warmly and introduce yourself as the medical assistant.
+2. Explain your capabilities concisely (e.g., providing medical information, drug safety information, checking drug interactions, analyzing symptoms, etc.).
+3. DO NOT talk about specific drugs or medical conditions unless the user explicitly asks about them.
+4. Encourage the user to ask their health-related questions.
+5. Always answer in natural, polite Vietnamese.
+"""
 
 
 # =====================================================================
@@ -38,7 +58,7 @@ class MedicalState(TypedDict):
     evidence_score: Optional[float]
     evidence_confidence: Optional[str]
     needs_crawl: Optional[bool]
-    crawl_attempted: bool
+    crawl_iterations: int
     
     # Kết quả đầu ra
     answer: Optional[str]
@@ -66,18 +86,21 @@ class LangGraphPipeline:
         self.llm = QwenMedicalLLM()
         self.query_rewriter = QueryRewriter()
         
-        # Tái sử dụng các thành phần từ RAG Pipeline hiện tại
-        self.rag_pipeline = MedicalRAGPipeline(llm_client=self.llm)
-        self.safety_guard = self.rag_pipeline.safety_guard
-        self.embedding_manager = self.rag_pipeline.embedding_manager
-        self.hybrid_retriever = self.rag_pipeline.hybrid_retriever
-        self.evidence_grader = self.rag_pipeline.evidence_grader
-        self.web_crawler = self.rag_pipeline.web_crawler
-        self.response_generator = self.rag_pipeline.response_generator
-        self.response_validator = self.rag_pipeline.response_validator
+        # Initialize components directly
+        self.safety_guard = SafetyGuard()
+        self.embedding_manager = EmbeddingManager()
+        self.vector_store = VectorStore(CHROMA_PERSIST_DIR)
+        self.bm25_store = BM25Store()
+        self.bm25_store.load(BM25_INDEX_PATH)
+        self.hybrid_retriever = HybridRetriever(
+            self.embedding_manager, self.vector_store, self.bm25_store
+        )
+        self.evidence_grader = EvidenceGrader()
+        self.web_crawler = WebCrawler()
+        self.response_generator = ResponseGenerator()
+        self.response_validator = ResponseValidator()
         
         # Router: Khởi tạo với QwenMedicalLLM để chạy phân loại thực tế
-        from src.query_router import QueryRouter
         self.query_router = QueryRouter(self.llm)
         
         # Khởi tạo đồ thị
@@ -227,8 +250,14 @@ class LangGraphPipeline:
             requires_rag=True
         )
         
-        search_top_k = self.rag_pipeline._retrieval_top_k(query, classification)
-        category_filter = self.rag_pipeline._retrieval_category_filter(query, classification)
+        # Default category filter implementation (returning None as it did in MedicalRAGPipeline)
+        category_filter = None
+        
+        # Determine TOP K
+        if classification.category == "drug_interaction":
+            search_top_k = TOP_K * 3 + 2
+        else:
+            search_top_k = TOP_K + 2
         
         results = self.hybrid_retriever.search(
             query,
@@ -252,12 +281,50 @@ class LangGraphPipeline:
         }
         
     def web_retrieval_node(self, state: MedicalState) -> dict:
-        """Tìm kiếm bổ sung trên web nếu KB không đủ thông tin."""
+        """Sử dụng LLM đóng vai trò Agent để trích xuất entity và tạo query."""
         question = state["question"]
-        entities = state.get("entities") or []
+        rewritten_query = state.get("rewritten_query") or question
         retrieved_chunks = state.get("retrieved_chunks") or []
+        crawl_iterations = state.get("crawl_iterations", 0)
         
-        crawled = self.web_crawler.search(question, entities)
+        prompt = f"""
+You are a Medical Search Agent.
+Original User Question: "{question}"
+Rewritten Query: "{rewritten_query}"
+Previous Failed Search Attempts: {crawl_iterations}
+
+Your task is to use the "Web_Search_Tool" to find additional medical information.
+Extract the main medical entities (drugs, diseases, symptoms) from the query, and create a highly effective Google search query in ENGLISH.
+
+Return ONLY a valid JSON string with the following format:
+{{
+    "search_query": "english search query here",
+    "entities": ["entity1", "entity2"]
+}}
+"""
+        try:
+            response = self.llm.generate_answer(prompt, max_new_tokens=256, system_prompt="You are an AI Agent that strictly outputs JSON.")
+            import json
+            start_idx = response.find("{")
+            end_idx = response.rfind("}")
+            if start_idx != -1 and end_idx != -1:
+                data = json.loads(response[start_idx:end_idx+1])
+                search_query = data.get("search_query", rewritten_query)
+                entities = data.get("entities", [])
+            else:
+                search_query = rewritten_query
+                entities = state.get("entities") or []
+        except Exception as e:
+            logger.error(f"Agent JSON parse error: {e}")
+            search_query = rewritten_query
+            entities = state.get("entities") or []
+            
+        logger.info(f"[{question}] Agent Iteration {crawl_iterations+1} called Web_Search_Tool with query: '{search_query}', entities: {entities}")
+        
+        # Use English sources for iterations > 0
+        use_english = crawl_iterations > 0
+            
+        crawled = self.web_crawler.search(search_query, entities, use_english=use_english)
         if crawled:
             for chunk in crawled:
                 chunk["embedding"] = self.embedding_manager.embed(chunk["content"])
@@ -265,13 +332,13 @@ class LangGraphPipeline:
             
         return {
             "retrieved_chunks": retrieved_chunks,
-            "crawl_attempted": True
+            "crawl_iterations": crawl_iterations + 1
         }
         
     def direct_llm_node(self, state: MedicalState) -> dict:
         """Trả lời câu hỏi FAQ không cần thông tin RAG."""
         question = state["question"]
-        answer = self.llm.generate_answer(question)
+        answer = self.llm.generate_answer(question, system_prompt=FAQ_SYSTEM_PROMPT)
         return {
             "answer": answer,
             "sources": []
@@ -359,14 +426,14 @@ class LangGraphPipeline:
     def _route_after_retrieval_assessment(self, state: MedicalState) -> str:
         relevant = state.get("relevant_chunks") or []
         needs_crawl = state.get("needs_crawl", False)
-        crawl_attempted = state.get("crawl_attempted", False)
+        crawl_iterations = state.get("crawl_iterations", 0)
         
         # 1. Có tài liệu tốt -> đi sinh câu trả lời
         if not needs_crawl and relevant:
             return "high_score"
             
-        # 2. Tài liệu yếu và chưa crawl -> đi tìm kiếm bổ sung
-        if needs_crawl and not crawl_attempted:
+        # 2. Tài liệu yếu và chưa đạt maxiter -> đi tìm kiếm bổ sung
+        if needs_crawl and crawl_iterations < 3:
             return "low_score"
             
         # 3. Đã crawl mà vẫn có tài liệu -> đi sinh câu trả lời
@@ -397,7 +464,7 @@ class LangGraphPipeline:
             "evidence_score": None,
             "evidence_confidence": None,
             "needs_crawl": None,
-            "crawl_attempted": False,
+            "crawl_iterations": 0,
             "answer": None,
             "sources": None,
             "disclaimer": None,
@@ -416,12 +483,13 @@ class LangGraphPipeline:
             }
         
         # Format lại output giống với RAG Pipeline cũ để app.py/api.py hoạt động hoàn hảo
+        route_name = "general_qa" if final_state.get("route") == "faq" else "rag"
         return {
             "answer": final_state.get("answer", "Xin lỗi, đã có lỗi xảy ra."),
             "sources": final_state.get("sources", []),
             "risk_level": final_state.get("risk_level", "low"),
             "category": final_state.get("category", "unknown"),
-            "route": final_state.get("route", "rag"),
+            "route": route_name,
             "classification_confidence": final_state.get("confidence", 0.0),
             "confidence": final_state.get("evidence_score", 0.0),
             "evidence_score": final_state.get("evidence_score", 0.0),
@@ -449,7 +517,7 @@ class LangGraphPipeline:
             "evidence_score": None,
             "evidence_confidence": None,
             "needs_crawl": None,
-            "crawl_attempted": False,
+            "crawl_iterations": 0,
             "answer": None,
             "sources": None,
             "disclaimer": None,
@@ -480,14 +548,14 @@ class LangGraphPipeline:
                     "sources": [],
                     "category": state["category"],
                     "risk_level": state["risk_level"],
-                    "route": "direct_llm",
+                    "route": "general_qa",
                     "disclaimer": get_disclaimer(state["risk_level"])
                 }
             }
             # Stream câu trả lời FAQ từ LLM
             logger.info(f"[{question}] Streaming FAQ response...")
             answer_parts = []
-            for token in self.llm.stream_answer(state["question"]):
+            for token in self.llm.stream_answer(state["question"], system_prompt=FAQ_SYSTEM_PROMPT):
                 answer_parts.append(token)
                 yield {"type": "token", "content": token}
             
@@ -553,7 +621,8 @@ class LangGraphPipeline:
                 "index": i,
                 "id": chunk.get("id", ""),
                 "title": metadata.get("title") or chunk.get("title", "Unknown"),
-                "content": chunk.get("content", "")
+                "content": chunk.get("content", ""),
+                "publish_date": metadata.get("publish_date", "")
             })
             
         yield {

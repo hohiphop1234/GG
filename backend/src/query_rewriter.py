@@ -36,8 +36,7 @@ class QueryRewriter:
             if not os.path.isabs(model_path):
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 backend_dir = os.path.dirname(current_dir)
-                project_root = os.path.dirname(backend_dir)
-                resolved_model_path = os.path.join(project_root, model_path)
+                resolved_model_path = os.path.join(backend_dir, model_path)
             else:
                 resolved_model_path = model_path
 
