@@ -57,11 +57,18 @@ class EmbeddingManager:
         try:
             from sentence_transformers import SentenceTransformer
             try:
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            except Exception:
+                device = "cpu"
+            print(f"⚡ Đang load model embedding ({EMBEDDING_MODEL_VI}) trên thiết bị: {device.upper()}")
+
+            try:
                 # Try loading from local cache first to avoid internet requests
-                self._model = SentenceTransformer(EMBEDDING_MODEL_VI, device='cpu', local_files_only=True, trust_remote_code=True)
+                self._model = SentenceTransformer(EMBEDDING_MODEL_VI, device=device, local_files_only=True, trust_remote_code=True)
             except Exception:
                 # Fallback to online loading to download the model if not cached yet
-                self._model = SentenceTransformer(EMBEDDING_MODEL_VI, device='cpu', trust_remote_code=True)
+                self._model = SentenceTransformer(EMBEDDING_MODEL_VI, device=device, trust_remote_code=True)
             return self._model
         except ImportError:
             self._model_failed = True

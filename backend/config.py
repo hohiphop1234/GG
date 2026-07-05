@@ -25,7 +25,7 @@ LLAMA_SERVER_URL = f"http://localhost:{LLAMA_SERVER_PORT}"
 EMBEDDING_MODEL_VI = os.getenv(
     "EMBEDDING_MODEL_VI", "Dqdung205/medical_vietnamese_embedding"
 )
-FALLBACK_EMBEDDING_DIM = int(os.getenv("FALLBACK_EMBEDDING_DIM", "384"))
+FALLBACK_EMBEDDING_DIM = int(os.getenv("FALLBACK_EMBEDDING_DIM", "768"))
 FORCE_FALLBACK_EMBEDDINGS = (
     os.getenv("FORCE_FALLBACK_EMBEDDINGS", "false").lower() == "true"
 )
