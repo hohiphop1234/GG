@@ -94,14 +94,20 @@ graph TD;
 │   ├── config.py                  # Cấu hình tham số và đường dẫn hệ thống
 │   ├── requirements.txt           # Thư viện Python (optimum, onnxruntime, langgraph...)
 │   ├── data/                      # Dữ liệu y khoa đã xử lý (processed)
-│   └── src/                       # Các module xử lý nghiệp vụ
-│       ├── langgraph_pipeline.py  # Định nghĩa đồ thị trạng thái LangGraph
-│       ├── query_router.py        # Định tuyến sử dụng PhoBERT ONNX
-│       ├── query_rewriter.py      # Viết lại câu bằng ViT5-base
-│       ├── llama_manager.py       # Quản lý tiến trình nền llama-server (GGUF)
-│       ├── hybrid_retriever.py    # Kết hợp ChromaDB + BM25 + RRF
-│       ├── response_generator.py  # Soạn thảo câu trả lời (Markdown đẹp, dễ đọc)
-│       └── ...
+│   └── src/                       # Các module xử lý nghiệp vụ và tiện ích
+│       ├── pipeline/              # Phân hệ Điều phối & Đồ thị (LangGraph)
+│       │   ├── graph.py           # Định nghĩa đồ thị trạng thái LangGraph
+│       │   └── registry.py        # Quản lý Prompt và Data tập trung
+│       ├── nodes/                 # Phân hệ Nghiệp vụ y khoa (Cognitive Nodes)
+│       │   ├── router.py          # Định tuyến sử dụng PhoBERT ONNX
+│       │   ├── rewriter.py        # Viết lại câu bằng ViT5-base
+│       │   ├── generator.py       # Soạn thảo câu trả lời RAG
+│       │   └── ...
+│       ├── store/                 # Phân hệ Truy xuất dữ liệu (RAG Store)
+│       │   ├── retriever.py       # Tìm kiếm lai BM25 + Vector DB
+│       │   └── ...
+│       └── utils/                 # Tiện ích & Quản trị tiến trình
+│           └── server.py          # Quản lý tiến trình nền llama-server
 ├── frontend/                      # Giao diện Web App (React + Vite)
 │   ├── src/                       # Mã nguồn giao diện và xử lý SSE Stream
 │   └── ...
