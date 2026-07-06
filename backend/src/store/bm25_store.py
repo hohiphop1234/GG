@@ -5,7 +5,7 @@ import pickle
 from pathlib import Path
 from typing import Any
 
-from src.utils import tokenize
+from src.utils.helpers import tokenize
 
 try:
     from rank_bm25 import BM25Okapi

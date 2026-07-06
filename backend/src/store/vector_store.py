@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from config import COLLECTION_NAME_VI
-from src.utils import cosine_similarity, ensure_dir
+from src.utils.helpers import cosine_similarity, ensure_dir
 
 try:
     import chromadb

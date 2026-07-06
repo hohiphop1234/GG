@@ -8,7 +8,7 @@ from config import (
     FALLBACK_EMBEDDING_DIM,
     FORCE_FALLBACK_EMBEDDINGS,
 )
-from src.utils import tokenize, stable_hash
+from src.utils.helpers import tokenize, stable_hash
 
 # sentence_transformers import has been moved to _load_model
 
