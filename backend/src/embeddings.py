@@ -1,25 +1,19 @@
 from __future__ import annotations
 
-import math
 from typing import Any
-
-from config import (
-    EMBEDDING_MODEL_VI,
-    FALLBACK_EMBEDDING_DIM,
-    FORCE_FALLBACK_EMBEDDINGS,
-)
-from src.utils import tokenize, stable_hash
-
-# sentence_transformers import has been moved to _load_model
+from config import EMBEDDING_MODEL_VI
+from src.utils import stable_hash
 
 class EmbeddingManager:
-    """Embedding manager with a deterministic fallback."""
+    """
+    Embedding manager CHỈ SỬ DỤNG MÔ HÌNH CHÍNH (No Fallback).
+    Đảm bảo tính đồng nhất tuyệt đối cho không gian vector RAG.
+    """
 
-    def __init__(self, allow_fallback: bool = True):
-        self.allow_fallback = allow_fallback
+    def __init__(self, allow_fallback: bool = False):
+        # Giữ tham số allow_fallback = False để tương thích với các lời gọi cũ nhưng không sử dụng
         self._model: Any | None = None
         self._cache: dict[str, list[float]] = {}
-        self._model_failed: bool = False
 
     def embed(self, text: str) -> list[float]:
         cache_key = stable_hash(text, 32)
@@ -31,65 +25,50 @@ class EmbeddingManager:
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         model = self._load_model()
-        if model is not None:
-            try:
-                return model.encode(texts, show_progress_bar=len(texts) > 8).tolist()
-            except Exception:
-                self._model_failed = True
-                if not self.allow_fallback:
-                    raise
-        return [self._fallback_embedding(text) for text in texts]
+        try:
+            return model.encode(texts, show_progress_bar=len(texts) > 8).tolist()
+        except Exception as e:
+            raise RuntimeError(f"❌ Lỗi khi tạo vector embedding với model '{EMBEDDING_MODEL_VI}': {e}") from e
 
     def get_embedding_dim(self) -> int:
         model = self._load_model()
-        if model is not None:
-            try:
-                return int(model.get_sentence_embedding_dimension())
-            except Exception:
-                pass
-        return FALLBACK_EMBEDDING_DIM
+        try:
+            return int(model.get_sentence_embedding_dimension())
+        except Exception as e:
+            raise RuntimeError(f"❌ Không thể lấy số chiều của model '{EMBEDDING_MODEL_VI}': {e}") from e
 
-    def _load_model(self) -> Any | None:
-        if FORCE_FALLBACK_EMBEDDINGS or self._model_failed:
-            return None
+    def _load_model(self) -> Any:
         if self._model is not None:
             return self._model
+        
         try:
             from sentence_transformers import SentenceTransformer
-            try:
-                import torch
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            except Exception:
-                device = "cpu"
-            print(f"⚡ Đang load model embedding ({EMBEDDING_MODEL_VI}) trên thiết bị: {device.upper()}")
+        except ImportError as e:
+            raise RuntimeError(
+                "❌ Thiếu thư viện 'sentence-transformers'. Vui lòng chạy 'pip install sentence-transformers' để dùng model chính!"
+            ) from e
 
-            try:
-                # Try loading from local cache first to avoid internet requests
-                self._model = SentenceTransformer(EMBEDDING_MODEL_VI, device=device, local_files_only=True, trust_remote_code=True)
-            except Exception:
-                # Fallback to online loading to download the model if not cached yet
-                self._model = SentenceTransformer(EMBEDDING_MODEL_VI, device=device, trust_remote_code=True)
-            return self._model
-        except ImportError:
-            self._model_failed = True
-            return None
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
         except Exception:
-            self._model_failed = True
-            if not self.allow_fallback:
-                raise
-            return None
+            device = "cpu"
+            
+        print(f"⚡ Đang load model embedding chính ({EMBEDDING_MODEL_VI}) trên thiết bị: {device.upper()}")
 
-    def _fallback_embedding(self, text: str) -> list[float]:
-        vector = [0.0] * FALLBACK_EMBEDDING_DIM
-        tokens = tokenize(text)
-        if not tokens:
-            return vector
-        for token in tokens:
-            digest = stable_hash(token, 16)
-            bucket = int(digest[:8], 16) % FALLBACK_EMBEDDING_DIM
-            sign = -1.0 if int(digest[8:10], 16) % 2 else 1.0
-            vector[bucket] += sign
-        norm = math.sqrt(sum(value * value for value in vector))
-        if norm == 0.0:
-            return vector
-        return [value / norm for value in vector]
+        try:
+            # Ưu tiên load từ cache local trước
+            self._model = SentenceTransformer(EMBEDDING_MODEL_VI, device=device, local_files_only=True, trust_remote_code=True)
+        except Exception:
+            try:
+                # Nếu chưa có trong cache thì tải online từ HuggingFace
+                print(f"🌐 Đang tải model '{EMBEDDING_MODEL_VI}' từ HuggingFace...")
+                self._model = SentenceTransformer(EMBEDDING_MODEL_VI, device=device, trust_remote_code=True)
+            except Exception as e:
+                raise RuntimeError(
+                    f"❌ KHÔNG THỂ TẢI MODEL EMBEDDING CHÍNH '{EMBEDDING_MODEL_VI}'.\n"
+                    f"Hệ thống RAG yêu cầu bắt buộc phải có model này để đảm bảo đồng nhất dữ liệu.\n"
+                    f"Chi tiết lỗi: {e}"
+                ) from e
+
+        return self._model
