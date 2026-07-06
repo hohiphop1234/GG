@@ -39,7 +39,7 @@ COLLECTION_NAME_VI = "medical_rag_vi"
 TOP_K = int(os.getenv("TOP_K", "3"))
 VECTOR_WEIGHT = float(os.getenv("VECTOR_WEIGHT", "0.6"))
 BM25_WEIGHT = float(os.getenv("BM25_WEIGHT", "0.4"))
-EVIDENCE_THRESHOLD = float(os.getenv("EVIDENCE_THRESHOLD", "0.5"))
+EVIDENCE_THRESHOLD = float(os.getenv("EVIDENCE_THRESHOLD", "0.7"))
 MIN_EVIDENCE_CHUNKS = int(os.getenv("MIN_EVIDENCE_CHUNKS", "2"))
 
 # Data paths

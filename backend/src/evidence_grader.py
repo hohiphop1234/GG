@@ -42,9 +42,11 @@ class EvidenceGrader:
         average = sum(item.get("relevance_score", 0.0) for item in relevant) / max(
             len(relevant), 1
         )
-        # Nếu có ít nhất 1 chunk chất lượng cao (score >= 0.7), không cần crawl thêm
-        needs_crawl = len(relevant) < MIN_EVIDENCE_CHUNKS and not any(
-            c.get("relevance_score", 0) >= 0.7 for c in relevant
+        # Nếu điểm đánh giá trung bình < 0.7 hoặc không có chunk nào >= 0.7 hoặc không đủ số lượng chunk thì cần crawl
+        needs_crawl = (
+            len(relevant) < MIN_EVIDENCE_CHUNKS
+            or average < 0.7
+            or not any(c.get("relevance_score", 0) >= 0.7 for c in relevant)
         )
         confidence = "high" if average >= 0.75 else "medium" if average >= 0.45 else "low"
         return GradingResult(
