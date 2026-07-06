@@ -42,11 +42,11 @@ class EvidenceGrader:
         average = sum(item.get("relevance_score", 0.0) for item in relevant) / max(
             len(relevant), 1
         )
-        # Nếu điểm đánh giá trung bình < 0.7 hoặc không có chunk nào >= 0.7 hoặc không đủ số lượng chunk thì cần crawl
+        # Nếu điểm đánh giá trung bình < 0.55 hoặc không có chunk nào >= 0.65 hoặc không đủ số lượng chunk thì cần crawl
         needs_crawl = (
             len(relevant) < MIN_EVIDENCE_CHUNKS
-            or average < 0.7
-            or not any(c.get("relevance_score", 0) >= 0.7 for c in relevant)
+            or average < 0.55
+            or not any(c.get("relevance_score", 0) >= 0.65 for c in relevant)
         )
         confidence = "high" if average >= 0.75 else "medium" if average >= 0.45 else "low"
         return GradingResult(
@@ -96,7 +96,7 @@ class EvidenceGrader:
         question_normalized = normalize_for_match(question)
         content_normalized = normalize_for_match(chunk.get("content", ""))
         search_score = float(
-            chunk.get("score", chunk.get("vector_score", chunk.get("fused_score", 0.0))) or 0.0
+            chunk.get("vector_score") or chunk.get("score") or chunk.get("fused_score") or 0.0
         )
         if self._is_interaction_question(question, query_entities):
             return self._interaction_score(
@@ -113,10 +113,16 @@ class EvidenceGrader:
         if query_entities and not entity_matches_query and not content_has_query_entity:
             return min(0.2, overlap * 0.4)
 
-        entity_bonus = 0.3 if entity_matches_query or content_has_query_entity else 0.0
-        topic_bonus = 0.0
-        search_bonus = min(max(search_score, 0.0), 1.0) * 0.2
-        return min(1.0, overlap * 0.7 + entity_bonus + topic_bonus + search_bonus)
+        entity_bonus = 0.25 if entity_matches_query or content_has_query_entity else 0.0
+        
+        # Tăng trọng số điểm ngữ nghĩa (search_score) và từ khóa (overlap)
+        search_bonus = min(max(search_score, 0.0), 1.0) * 0.45
+        keyword_score = min(max(overlap, 0.0), 1.0) * 0.55
+        
+        # Thêm điểm thưởng ngữ nghĩa nếu search_score cao mà câu hỏi không chứa từ khóa thuốc hardcode
+        semantic_boost = 0.15 if search_score >= 0.65 and not query_entities else 0.0
+        
+        return min(1.0, keyword_score + search_bonus + entity_bonus + semantic_boost)
 
     def _is_interaction_question(self, question: str, query_entities: set[str]) -> bool:
         normalized = normalize_for_match(question)
