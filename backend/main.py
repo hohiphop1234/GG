@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-from src.langgraph_pipeline import LangGraphPipeline
+from src.pipeline.graph import LangGraphPipeline
 from src.ingest_db import ingest_data
 
 

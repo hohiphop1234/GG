@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from config import RAW_DATA_FALLBACK_DIRS
-from src.utils import ensure_dir, normalize_for_match, stable_hash, write_jsonl
+from src.utils.helpers import ensure_dir, normalize_for_match, stable_hash, write_jsonl
 
 try:
     import ftfy

@@ -9,11 +9,11 @@ from config import (
     PROCESSED_DATA_DIR,
     RAW_DATA_DIR,
 )
-from src.bm25_store import BM25Store
+from src.store.bm25_store import BM25Store
 from src.data_cleaner import DataCleaner
-from src.embeddings import EmbeddingManager
-from src.utils import ensure_dir, load_jsonl
-from src.vector_store import VectorStore
+from src.store.embeddings import EmbeddingManager
+from src.utils.helpers import ensure_dir, load_jsonl
+from src.store.vector_store import VectorStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

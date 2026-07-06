@@ -6,6 +6,7 @@ import uvicorn
 import logging
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,13 +16,13 @@ pipeline = None
 def get_pipeline():
     global pipeline
     if pipeline is None:
-        from src.langgraph_pipeline import LangGraphPipeline
+        from src.pipeline.graph import LangGraphPipeline
         pipeline = LangGraphPipeline()
     return pipeline
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from src.llama_manager import LlamaServerManager
+    from src.utils.server import LlamaServerManager
     from config import LLAMA_MODEL_PATH, LLAMA_SERVER_PORT
     logger.info("Starting llama-server background process...")
     LlamaServerManager().start(model_path=LLAMA_MODEL_PATH, port=LLAMA_SERVER_PORT)
@@ -116,4 +117,13 @@ async def chat_stream_endpoint(request: ChatRequest):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 if __name__ == "__main__":
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    base_dir = Path(__file__).resolve().parent
+    # Keep hot reload for development, but avoid watching virtualenv/system churn.
+    uvicorn.run(
+        "api:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        reload_dirs=[str(base_dir), str(base_dir / "src")],
+        reload_excludes=[".venv/*", "**/.venv/*", "__pycache__/*", "*.pyc"],
+    )

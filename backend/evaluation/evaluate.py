@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.langgraph_pipeline import LangGraphPipeline
+from src.pipeline.graph import LangGraphPipeline
 from src.ingest_db import ingest_data
-from src.response_validator import ResponseValidator
-from src.utils import load_json
+from src.nodes.validator import ResponseValidator
+from src.utils.helpers import load_json
 
 
 class MedicalRAGEvaluator:
