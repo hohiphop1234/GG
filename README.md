@@ -28,8 +28,8 @@ Dự án được xây dựng và tối ưu hóa theo xu hướng hiện đại 
    - Có thể xuất sang **ONNX** (`optimum-cli`) để chạy mượt mà trên CPU.
 
 3. **Điều phối Workflow linh hoạt bằng LangGraph:**
-   - Hệ thống được cấu trúc dưới dạng Đồ thị trạng thái (`StateGraph`), bắt đầu từ `intent_router` đến `query_rewrite`, `hybrid_retrieval`, `evidence_grading` và `answer_generation`.
-   - Nếu phát hiện `emergency` hoặc `out-of-scope`, hệ thống lập tức đi tới node kếtthuốc sớm (`early_exit`) mà không chạy qua luồng RAG hay LLM sinh chữ, bảo đảm an toàn y tế và phản hồi tức thì.
+   - Hệ thống được cấu trúc dưới dạng Đồ thị trạng thái (`StateGraph`), bắt đầu từ `intent_router` đến `query_rewrite`, `hybrid_retrieval`, `retrieval_assessment` (thẩm định bằng chứng bằng `Evidence Grader`) và `rag_generation` (`answer_generation`).
+   - Nếu phát hiện `emergency` hoặc `out-of-scope`, hệ thống lập tức đi tới node kết thúc sớm (`early_exit`) mà không chạy qua luồng RAG hay LLM sinh chữ, bảo đảm an toàn y tế và phản hồi tức thì.
 
 4. **Tìm kiếm Lai (Hybrid Retrieval) & Thẩm định Bằng chứng:**
    - Kết hợp tìm kiếm ngữ nghĩa (**ChromaDB Vector Store**) và tìm kiếm từ khóa (**BM25**), sau đó dung hợp kết quả bằng thuật toán **RRF (Reciprocal Rank Fusion)**.
@@ -89,29 +89,58 @@ graph TD;
 ```text
 .
 ├── backend/                       # Backend API Server & Xử lý RAG lõi
-│   ├── api.py                     # Máy chủ FastAPI (lifespan quản lý llama-server)
-│   ├── main.py                    # Giao diện CLI hỗ trợ kiểm thử & Ingest dữ liệu
-│   ├── config.py                  # Cấu hình tham số và đường dẫn hệ thống
-│   ├── requirements.txt           # Thư viện Python (optimum, onnxruntime, langgraph...)
-│   ├── data/                      # Dữ liệu y khoa đã xử lý (processed)
-│   └── src/                       # Các module xử lý nghiệp vụ
-│       ├── langgraph_pipeline.py  # Định nghĩa đồ thị trạng thái LangGraph
-│       ├── query_router.py        # Định tuyến sử dụng PhoBERT ONNX
-│       ├── query_rewriter.py      # Viết lại câu bằng ViT5-base
-│       ├── llama_manager.py       # Quản lý tiến trình nền llama-server (GGUF)
-│       ├── hybrid_retriever.py    # Kết hợp ChromaDB + BM25 + RRF
-│       ├── response_generator.py  # Soạn thảo câu trả lời (Markdown đẹp, dễ đọc)
-│       └── ...
-├── frontend/                      # Giao diện Web App (React + Vite)
-│   ├── src/                       # Mã nguồn giao diện và xử lý SSE Stream
-│   └── ...
-├── notebooks/                     # Nghiên cứu và Huấn luyện mô hình
-│   ├── 04_train_phobert_intent.ipynb # Train mô hình Intent Classifier
-│   └── 05_train_vit5_rewrite.ipynb    # Train mô hình Query Rewrite
-├── models/                        # Vector DB và Trọng số mô hình
-│   ├── phobert-intent-onnx/       # Mô hình định tuyến PhoBERT dạng ONNX
-│   ├── vit5-rewrite-onnx/         # Mô hình viết lại câu ViT5 dạng ONNX (nếu có)
-│   └── qwen3-4b-thinking.gguf     # Trọng số LLM phục vụ RAG
+│   ├── api.py                     # Máy chủ FastAPI (REST API & SSE Streaming, quản lý llama-server)
+│   ├── main.py                    # Giao diện CLI hỗ trợ kiểm thử & Ingest dữ liệu RAG
+│   ├── config.py                  # Cấu hình tham số, trọng số và đường dẫn hệ thống
+│   ├── requirements.txt           # Danh sách thư viện Python (fastapi, langgraph, onnxruntime...)
+│   ├── graph.png                  # Sơ đồ kiến trúc luồng LangGraph
+│   ├── .env.example               # Mẫu cấu hình biến môi trường (.env)
+│   ├── llama-b9867-bin-win-.../   # Thư mục chứa tiến trình llama-server (mặc định cho Windows)
+│   ├── data/                      # Dữ liệu y khoa & từ điển phân loại
+│   │   ├── categories.json        # Định nghĩa 7 nhóm bệnh lý & rủi ro lâm sàng
+│   │   ├── processed/             # Dữ liệu RAG đã qua làm sạch và phân mảnh (chunking)
+│   │   └── ...
+│   ├── evaluation/                # Bộ kiểm thử và đánh giá tự động
+│   │   ├── eval_dataset.json      # Bộ dữ liệu đánh giá độ chính xác & an toàn (103 kịch bản)
+│   │   ├── evaluate.py            # Script chạy đánh giá tự động (RAGAS / Custom metrics)
+│   │   └── evaluation_results.json # Kết quả chuẩn đo lường (100% disclaimer, 0% violation)
+│   ├── models/                    # Kho lưu trữ trọng số mô hình & Cơ sở dữ liệu Vector
+│   │   ├── chromadb/              # Cơ sở dữ liệu Vector Store y khoa tiếng Việt (ChromaDB)
+│   │   ├── bm25_index.pkl         # Chỉ mục từ khóa Lexical Search (Rank-BM25)
+│   │   ├── qwen3-4b-thinking.gguf # Mô hình LLM suy luận cục bộ GGUF (4-bit quantized)
+│   │   ├── phobert-intent-onnx/   # Mô hình định tuyến PhoBERT đóng gói ONNX
+│   │   └── vit5-rewrite-onnx/     # Mô hình viết lại câu truy vấn ViT5 đóng gói ONNX
+│   └── src/                       # Các module xử lý nghiệp vụ lõi
+│       ├── langgraph_pipeline.py  # Đồ thị điều phối RAG (intent_router -> hybrid_retrieval -> ...)
+│       ├── query_router.py        # Phân loại ý định & rủi ro sử dụng PhoBERT ONNX
+│       ├── query_rewriter.py      # Viết lại & tối ưu câu hỏi bằng ViT5 ONNX
+│       ├── hybrid_retriever.py    # Tìm kiếm lai (Vector + BM25 + RRF + Entity Reranking)
+│       ├── evidence_grader.py     # Thẩm định độ tin cậy của evidence (Relevance & Sufficiency)
+│       ├── web_crawler.py         # Cào dữ liệu bổ sung từ nguồn uy tín (Vinmec, Tâm Anh, Bộ Y tế...)
+│       ├── qwen_llm.py            # Giao tiếp với Local LLM qua llama-server API
+│       ├── llama_manager.py       # Quản lý vòng đời tiến trình nền llama-server
+│       ├── response_generator.py  # Tổng hợp & soạn thảo câu trả lời (chuẩn Markdown, trích dẫn [N])
+│       ├── response_validator.py  # Hậu kiểm an toàn (chặn từ khóa cấm, kiểm tra trích dẫn, disclaimer)
+│       ├── safety_guard.py        # Bảo vệ an toàn, phát hiện cấp cứu 115 & câu hỏi ngoài luồng
+│       ├── embeddings.py          # Quản lý mô hình embedding tiếng Việt (Dqdung205)
+│       ├── vector_store.py        # Tương tác cơ sở dữ liệu Vector ChromaDB
+│       ├── bm25_store.py          # Tương tác chỉ mục từ khóa BM25
+│       ├── data_cleaner.py        # Làm sạch và chuẩn hóa văn bản y khoa
+│       ├── ingest_db.py           # Script nạp dữ liệu vào Vector Store & BM25
+│       ├── build_rag_kb.py        # Pipeline làm sạch, chunking và tạo knowledge base
+│       └── utils.py               # Tiện ích bổ trợ (logging, formatting)
+├── frontend/                      # Giao diện Web App (React 19 + Vite + Modern CSS)
+│   ├── src/                       # Mã nguồn React UI (Chat SSE Stream, Emergency Toggle, Tooltips)
+│   ├── package.json               # Cấu hình phụ thuộc NodeJS (react, vite, axios, lucide-react...)
+│   └── vite.config.js             # Cấu hình Vite bundler
+├── notebooks/                     # Nghiên cứu, thực nghiệm và fine-tuning AI
+│   ├── 01-train-qwen3-medical-qa.ipynb # Huấn luyện LLM y khoa Qwen3-4B
+│   ├── 03_clean_rag_chunks_vi.ipynb    # Làm sạch dữ liệu RAG tiếng Việt
+│   ├── 04_train_phobert_intent.ipynb   # Huấn luyện mô hình phân loại Intent (PhoBERT)
+│   ├── 05-train-vit5-rewrite.ipynb     # Huấn luyện mô hình viết lại câu hỏi (ViT5)
+│   └── ddp-finetuning.ipynb            # Huấn luyện phân tán DDP trên nhiều GPU
+├── generate_data.py               # Script tạo dữ liệu tổng hợp / giả lập
+├── Report_NLP.pdf                 # Báo cáo tổng kết đồ án (PDF)
 └── README.md                      # Tài liệu hướng dẫn hệ thống
 ```
 
@@ -140,10 +169,11 @@ pip install -r backend/requirements.txt
 
 ### 2. Chuẩn bị Trọng số Mô hình
 
-Hệ thống yêu cầu các file mô hình được đặt chính xác trong thư mục `models/` tại thư mục gốc:
+Hệ thống yêu cầu các file mô hình được đặt chính xác trong thư mục `backend/models/`:
 
-1. **LLM (GGUF):** Tải file mô hình lượng hóa `qwen3-4b-thinking.gguf` (hoặc tương đương) và lưu vào `models/qwen3-4b-thinking.gguf`.
-2. **PhoBERT ONNX:** Đảm bảo thư mục mô hình định tuyến ONNX đã được đặt tại `models/phobert-intent-onnx/` (chứa `model.onnx`, `config.json`...).
+1. **LLM (GGUF):** Tải file mô hình lượng hóa `qwen3-4b-thinking.gguf` (hoặc tương đương) và lưu vào `backend/models/qwen3-4b-thinking.gguf`.
+2. **PhoBERT ONNX:** Đảm bảo thư mục mô hình định tuyến ONNX đã được đặt tại `backend/models/phobert-intent-onnx/` (chứa `model.onnx`, `config.json`...).
+3. **ViT5 ONNX (nếu có):** Đặt thư mục mô hình viết lại câu hỏi tại `backend/models/vit5-rewrite-onnx/`.
 
 ### 3. Nạp Cơ sở dữ liệu Tri thức (Vector DB Ingestion)
 
@@ -162,9 +192,9 @@ Mở hai terminal song song để chạy cả API backend và giao diện UI fro
 ```powershell
 .\.venv\Scripts\Activate.ps1
 cd backend
-uv run api.py
+python api.py
 ```
-*Lưu ý:* Khi khởi động, backend sẽ tự động gọi file thực thi `llama-server` chạy ngầm ở cổng 8080 để load mô hình GGUF. Đồng thời log `ONNX Model Loaded Successfully!` sẽ báo hiệu PhoBERT ONNX đã sẵn sàng.
+*Lưu ý:* Khi khởi động, backend sẽ tự động gọi file thực thi `llama-server` chạy ngầm ở cổng 8080 để load mô hình GGUF. Đồng thời log `ONNX Model Loaded Successfully!` sẽ báo hiệu PhoBERT ONNX và ViT5 ONNX đã sẵn sàng. Bạn cũng có thể khởi chạy bằng lệnh `uv run api.py` nếu đang quản lý gói phụ thuộc bằng `uv`.
 
 #### 🖥️ Terminal 2: Khởi chạy React Web App
 ```powershell
